@@ -21,6 +21,8 @@ app.use(helmet());
 const allowedOrigins = [
   process.env.FRONTEND_URL,
   process.env.ADMIN_FRONTEND_URL,
+  'http://51.21.197.111:3000',
+  'http://51.21.197.111:4000',
   'http://localhost:5100',
   'http://localhost:5173',
   'http://localhost:3000',

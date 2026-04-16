@@ -21,6 +21,9 @@ app.use(helmet());
 const allowedOrigins = [
   process.env.FRONTEND_URL,
   process.env.ADMIN_FRONTEND_URL,
+  'https://trustdepo.com',
+  'https://www.trustdepo.com',
+  'https://admin.trustdepo.com',
   'http://51.21.197.111:3000',
   'http://51.21.197.111:4000',
   'http://localhost:5100',

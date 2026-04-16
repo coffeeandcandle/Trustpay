@@ -9,6 +9,7 @@ const authRoutes = require('./routes/auth');
 const transactionRoutes = require('./routes/transactions');
 const functionsRoutes = require('./routes/functions');
 const userRoutes = require('./routes/user');
+const adminRoutes = require('./routes/admin');
 const errorHandler = require('./middleware/errorHandler');
 
 const app = express();
@@ -19,9 +20,11 @@ app.use(helmet());
 // ── CORS
 const allowedOrigins = [
   process.env.FRONTEND_URL,
+  process.env.ADMIN_FRONTEND_URL,
   'http://localhost:5100',
   'http://localhost:5173',
   'http://localhost:3000',
+  'http://localhost:5174',
 ].filter(Boolean);
 
 app.use(
@@ -55,6 +58,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/transactions', transactionRoutes);
 app.use('/api/functions', functionsRoutes);
 app.use('/api/user', userRoutes);
+app.use('/api/admin', adminRoutes);
 
 // ── 404 handler
 app.use((req, res) => {

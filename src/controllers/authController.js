@@ -143,7 +143,10 @@ async function getMe(req, res, next) {
 // PUT /api/auth/me
 async function updateMe(req, res, next) {
   try {
-    const allowed = ['full_name', 'phone', 'company', 'city', 'emirates_id', 'plan', 'plan_selected_at'];
+    const allowed = [
+      'full_name', 'phone', 'company', 'city', 'emirates_id', 'plan', 'plan_selected_at',
+      'date_of_birth', 'address', 'gender', 'account_type', 'country', 'how_did_you_hear', 'vat_number',
+    ];
     const updates = {};
 
     for (const key of allowed) {

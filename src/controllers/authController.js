@@ -5,10 +5,27 @@ const { supabase, supabaseAnon } = require('../config/supabase');
 // Optional: phone, city, company, emirates_id
 async function register(req, res, next) {
   try {
-    const { email, password, full_name, phone, city, company, emirates_id } = req.body;
+    const { email, password, full_name, phone, city, company, emirates_id, username } = req.body;
 
     if (!email || !password || !full_name) {
       return res.status(400).json({ error: 'email, password, and full_name are required' });
+    }
+
+    // Validate username format if provided
+    if (username && !/^[a-z0-9_]{3,30}$/.test(username)) {
+      return res.status(400).json({ error: 'Username can only contain lowercase letters, numbers, and underscores (3–30 characters).' });
+    }
+
+    // Check username uniqueness if provided
+    if (username) {
+      const { data: existingUser } = await supabase
+        .from('users')
+        .select('id')
+        .eq('username', username)
+        .maybeSingle();
+      if (existingUser) {
+        return res.status(409).json({ error: 'This username is already taken. Please choose another.' });
+      }
     }
 
     // Use anon client — signUp does not require service role key
@@ -43,6 +60,7 @@ async function register(req, res, next) {
     if (city)        profileRow.city        = city;
     if (company)     profileRow.company     = company;
     if (emirates_id) profileRow.emirates_id = emirates_id;
+    if (username)    profileRow.username    = username;
 
     // Upsert profile row (the DB trigger may already have created it)
     await supabase.from('users').upsert(profileRow);
@@ -146,6 +164,7 @@ async function updateMe(req, res, next) {
     const allowed = [
       'full_name', 'phone', 'company', 'city', 'emirates_id', 'plan', 'plan_selected_at',
       'date_of_birth', 'address', 'gender', 'account_type', 'country', 'how_did_you_hear', 'vat_number',
+      'username',
     ];
     const updates = {};
 

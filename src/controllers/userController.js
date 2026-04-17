@@ -84,4 +84,38 @@ async function deleteBankAccount(req, res, next) {
   }
 }
 
-module.exports = { getBankAccounts, addBankAccount, deleteBankAccount };
+// GET /api/user/lookup?username=xyz
+// Returns public profile info for a user by their username (for transaction receiver lookup)
+async function lookupByUsername(req, res, next) {
+  try {
+    const { username } = req.query;
+    if (!username) {
+      return res.status(400).json({ error: 'username query param is required' });
+    }
+
+    const { data, error } = await supabase
+      .from('users')
+      .select('id, full_name, email, username')
+      .eq('username', username.toLowerCase().replace(/^@/, ''))
+      .maybeSingle();
+
+    if (error) {
+      return res.status(500).json({ error: error.message });
+    }
+
+    if (!data) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    // Return only public-safe fields
+    return res.json({
+      full_name: data.full_name,
+      email: data.email,
+      username: data.username,
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
+module.exports = { getBankAccounts, addBankAccount, deleteBankAccount, lookupByUsername };

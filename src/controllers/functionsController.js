@@ -176,10 +176,10 @@ async function cancelEscrow(req, res, next) {
 }
 
 // POST /api/functions/disputeEscrow
-// Body: { transaction_id, reason }
+// Body: { transaction_id, reason, file_url? }
 async function disputeEscrow(req, res, next) {
   try {
-    const { transaction_id, reason } = req.body;
+    const { transaction_id, reason, file_url } = req.body;
 
     if (!transaction_id || !reason) {
       return res.status(400).json({ error: 'transaction_id and reason are required' });
@@ -210,9 +210,12 @@ async function disputeEscrow(req, res, next) {
       return res.status(400).json({ error: `Cannot dispute a transaction with status: ${tx.status}` });
     }
 
+    const updatePayload = { status: 'disputed', dispute_reason: reason.trim() };
+    if (file_url) updatePayload.dispute_file_url = file_url;
+
     const { data, error } = await supabase
       .from('escrow_transactions')
-      .update({ status: 'disputed', dispute_reason: reason.trim() })
+      .update(updatePayload)
       .eq('id', transaction_id)
       .select()
       .single();

@@ -10,6 +10,7 @@ const transactionRoutes = require('./routes/transactions');
 const functionsRoutes = require('./routes/functions');
 const userRoutes = require('./routes/user');
 const adminRoutes = require('./routes/admin');
+const uploadRoutes = require('./routes/upload');
 const errorHandler = require('./middleware/errorHandler');
 
 const app = express();
@@ -64,6 +65,7 @@ app.use('/api/transactions', transactionRoutes);
 app.use('/api/functions', functionsRoutes);
 app.use('/api/user', userRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/upload', uploadRoutes);
 
 // ── 404 handler
 app.use((req, res) => {

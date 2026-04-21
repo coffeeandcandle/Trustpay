@@ -41,7 +41,7 @@ async function addBankAccount(req, res, next) {
     if (!accountId) {
       const account = await stripe.accounts.create({
         type: 'custom',
-        country: 'AE',
+        country: 'GB',
         email: profile.email,
         capabilities: {
           card_payments: { requested: true },
@@ -70,8 +70,8 @@ async function addBankAccount(req, res, next) {
     await stripe.accounts.createExternalAccount(accountId, {
       external_account: {
         object: 'bank_account',
-        country: 'AE',
-        currency: 'aed',
+        country: 'GB',
+        currency: 'gbp',
         account_number: cleanIban,
         account_holder_name: account_holder_name.trim(),
         account_holder_type: 'individual',

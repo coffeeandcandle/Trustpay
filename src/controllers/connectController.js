@@ -10,10 +10,13 @@ async function addBankAccount(req, res, next) {
   try {
     if (!stripe) return res.status(503).json({ error: 'Payment processing is not configured' });
 
-    const { account_holder_name, account_number, sort_code } = req.body;
+    const { account_holder_name, account_number, sort_code, iban } = req.body;
 
-    if (!account_holder_name?.trim() || !account_number?.trim() || !sort_code?.trim()) {
-      return res.status(400).json({ error: 'Account holder name, sort code and account number are required' });
+    if (!account_holder_name?.trim()) {
+      return res.status(400).json({ error: 'Account holder name is required' });
+    }
+    if (!account_number?.trim() && !iban?.trim()) {
+      return res.status(400).json({ error: 'Account number or IBAN is required' });
     }
 
     const { data: profile, error: profileErr } = await supabase
@@ -62,13 +65,12 @@ async function addBankAccount(req, res, next) {
     }
 
     // Add UK bank account (sort_code + account_number for GB)
-    const { account_number: accNum, sort_code } = req.body;
-    const externalAccount = sort_code
+    const externalAccount = (sort_code && account_number)
       ? {
           object: 'bank_account',
           country: 'GB',
           currency: 'gbp',
-          account_number: accNum,
+          account_number: account_number.trim(),
           routing_number: sort_code.replace(/-/g, ''),
           account_holder_name: account_holder_name.trim(),
           account_holder_type: 'individual',
@@ -77,7 +79,7 @@ async function addBankAccount(req, res, next) {
           object: 'bank_account',
           country: 'GB',
           currency: 'gbp',
-          account_number: cleanIban,
+          account_number: iban.trim().toUpperCase().replace(/\s/g, ''),
           account_holder_name: account_holder_name.trim(),
           account_holder_type: 'individual',
         };

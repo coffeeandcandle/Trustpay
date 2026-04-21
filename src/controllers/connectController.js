@@ -10,15 +10,10 @@ async function addBankAccount(req, res, next) {
   try {
     if (!stripe) return res.status(503).json({ error: 'Payment processing is not configured' });
 
-    const { account_holder_name, iban } = req.body;
+    const { account_holder_name, account_number, sort_code } = req.body;
 
-    if (!account_holder_name?.trim() || !iban?.trim()) {
-      return res.status(400).json({ error: 'Account holder name and IBAN are required' });
-    }
-
-    const cleanIban = iban.trim().toUpperCase().replace(/\s/g, '');
-    if (cleanIban.length < 15) {
-      return res.status(400).json({ error: 'Please enter a valid IBAN' });
+    if (!account_holder_name?.trim() || !account_number?.trim() || !sort_code?.trim()) {
+      return res.status(400).json({ error: 'Account holder name, sort code and account number are required' });
     }
 
     const { data: profile, error: profileErr } = await supabase

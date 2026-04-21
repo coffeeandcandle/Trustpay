@@ -89,7 +89,7 @@ async function addBankAccount(req, res, next) {
 
     return res.json({ success: true, accountId });
   } catch (err) {
-    // Return Stripe error message clearly
+    console.error('Stripe Connect error:', err.message, err.code, err.param);
     if (err.type && err.message) {
       return res.status(400).json({ error: err.message });
     }

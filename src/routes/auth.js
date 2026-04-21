@@ -9,15 +9,19 @@ const {
   deleteMe,
   verifyOtp,
   resendOtp,
+  forgotPassword,
+  changePassword,
 } = require('../controllers/authController');
 
 router.post('/register', register);
 router.post('/login', login);
 router.post('/verify-otp', verifyOtp);
 router.post('/resend-otp', resendOtp);
+router.post('/forgot-password', forgotPassword);
 router.post('/logout', authenticate, logout);
 router.get('/me', authenticate, getMe);
 router.put('/me', authenticate, updateMe);
+router.put('/change-password', authenticate, changePassword);
 router.delete('/me', authenticate, deleteMe);
 
 module.exports = router;

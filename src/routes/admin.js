@@ -23,6 +23,9 @@ const {
   getAdminUsers,
   inviteAdmin,
   updateAdminRole,
+  getWithdrawals,
+  approveWithdrawal,
+  rejectWithdrawal,
 } = require('../controllers/adminController');
 
 // Middleware: fetch the user's profile from public.users and attach it to the request.
@@ -81,6 +84,10 @@ router.get('/tickets', getTickets);
 router.put('/tickets/:id', updateTicket);
 
 router.get('/audit-logs', getAuditLogs);
+
+router.get('/withdrawals', getWithdrawals);
+router.post('/withdrawals/:id/approve', approveWithdrawal);
+router.post('/withdrawals/:id/reject', rejectWithdrawal);
 
 router.get('/admins', getAdminUsers);
 router.post('/admins/invite', inviteAdmin);

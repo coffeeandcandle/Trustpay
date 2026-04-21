@@ -1,4 +1,5 @@
 const { supabase, supabaseAnon } = require('../config/supabase');
+const { insertAuditLog } = require('../utils/auditLog');
 
 // POST /api/auth/register
 // Required: email, password, full_name
@@ -65,6 +66,14 @@ async function register(req, res, next) {
     // Upsert profile row (the DB trigger may already have created it)
     await supabase.from('users').upsert(profileRow);
 
+    // Log user registration activity
+    await insertAuditLog({
+      actorName: full_name, actorEmail: email,
+      action: 'user_registered', targetType: 'user',
+      targetId: data.user.id, targetLabel: email,
+      severity: 'low', details: { full_name, username: username || null },
+    });
+
     // If email confirmation is DISABLED, Supabase returns a session immediately
     // Return the token so the frontend can log the user in without OTP step
     if (data.session) {
@@ -115,6 +124,14 @@ async function login(req, res, next) {
       .eq('id', data.user.id)
       .single();
 
+    // Log login activity
+    await insertAuditLog({
+      actorName: profile?.full_name, actorEmail: email,
+      action: 'user_login', targetType: 'user',
+      targetId: data.user.id, targetLabel: email,
+      severity: 'low',
+    });
+
     return res.json({
       access_token: data.session.access_token,
       refresh_token: data.session.refresh_token,
@@ -162,7 +179,7 @@ async function getMe(req, res, next) {
 async function updateMe(req, res, next) {
   try {
     const allowed = [
-      'full_name', 'phone', 'company', 'city', 'emirates_id', 'plan', 'plan_selected_at',
+      'full_name', 'phone', 'company', 'city', 'emirates_id', 'passport_number', 'plan', 'plan_selected_at',
       'date_of_birth', 'address', 'gender', 'account_type', 'country', 'how_did_you_hear', 'vat_number',
       'username',
     ];
@@ -284,4 +301,65 @@ async function resendOtp(req, res, next) {
   }
 }
 
-module.exports = { register, login, logout, getMe, updateMe, deleteMe, verifyOtp, resendOtp };
+// POST /api/auth/forgot-password
+// Body: { email }
+async function forgotPassword(req, res, next) {
+  try {
+    const { email } = req.body;
+    if (!email) return res.status(400).json({ error: 'email is required' });
+
+    const { error } = await supabaseAnon.auth.resetPasswordForEmail(email, {
+      redirectTo: 'https://admin.trustdepo.com/reset-password',
+    });
+
+    if (error) return res.status(400).json({ error: error.message });
+
+    return res.json({ message: 'Password reset email sent. Check your inbox.' });
+  } catch (err) {
+    next(err);
+  }
+}
+
+// POST /api/auth/change-password  (authenticated)
+// Body: { current_password, new_password }
+async function changePassword(req, res, next) {
+  try {
+    const { current_password, new_password } = req.body;
+    if (!current_password || !new_password) {
+      return res.status(400).json({ error: 'current_password and new_password are required' });
+    }
+    if (new_password.length < 6) {
+      return res.status(400).json({ error: 'New password must be at least 6 characters' });
+    }
+
+    // Fetch user email to re-authenticate
+    const { data: profile } = await supabase
+      .from('users')
+      .select('email')
+      .eq('id', req.user.id)
+      .single();
+
+    if (!profile) return res.status(404).json({ error: 'User not found' });
+
+    // Verify current password by signing in
+    const { error: authError } = await supabaseAnon.auth.signInWithPassword({
+      email: profile.email,
+      password: current_password,
+    });
+
+    if (authError) return res.status(401).json({ error: 'Current password is incorrect' });
+
+    // Update to new password
+    const { error: updateError } = await supabase.auth.admin.updateUserById(req.user.id, {
+      password: new_password,
+    });
+
+    if (updateError) return res.status(500).json({ error: updateError.message });
+
+    return res.json({ message: 'Password changed successfully' });
+  } catch (err) {
+    next(err);
+  }
+}
+
+module.exports = { register, login, logout, getMe, updateMe, deleteMe, verifyOtp, resendOtp, forgotPassword, changePassword };

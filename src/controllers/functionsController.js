@@ -1,4 +1,6 @@
 const { supabase } = require('../config/supabase');
+const { insertAuditLog } = require('../utils/auditLog');
+const { captureAndRelease, voidAuthorization } = require('./paymentController');
 
 // Helper — get user profile
 async function getProfile(userId) {
@@ -27,8 +29,19 @@ async function createEscrow(req, res, next) {
 
     const profile = await getProfile(req.user.id);
 
-    if (profile.email === receiver_email) {
-      return res.status(400).json({ error: 'You cannot create an escrow with yourself' });
+    if (profile.email === receiver_email.toLowerCase().trim()) {
+      return res.status(400).json({ error: 'You cannot create a transaction with yourself' });
+    }
+
+    // Check receiver is a registered TrustDepo user
+    const { data: receiverProfile } = await supabase
+      .from('users')
+      .select('id, full_name, email')
+      .eq('email', receiver_email.toLowerCase().trim())
+      .maybeSingle();
+
+    if (!receiverProfile) {
+      return res.status(404).json({ error: 'This email is not registered on TrustDepo. The receiver must sign up first.' });
     }
 
     const { data, error } = await supabase
@@ -39,8 +52,8 @@ async function createEscrow(req, res, next) {
         sender_id: req.user.id,
         sender_email: profile.email,
         sender_name: profile.full_name || profile.email,
-        receiver_email,
-        receiver_name: receiver_name || null,
+        receiver_email: receiver_email.toLowerCase().trim(),
+        receiver_name: receiverProfile.full_name || receiver_name || null,
         notes: notes || null,
         release_date: release_date || null,
         status: 'pending_deposit',
@@ -51,6 +64,13 @@ async function createEscrow(req, res, next) {
     if (error) {
       return res.status(500).json({ error: error.message });
     }
+
+    await insertAuditLog({
+      actorName: profile.full_name || profile.email, actorEmail: profile.email,
+      action: 'transaction_created', targetType: 'transaction',
+      targetId: data.id, targetLabel: title,
+      severity: 'low', details: { amount: Number(amount), receiver_email },
+    });
 
     return res.status(201).json(data);
   } catch (err) {
@@ -102,10 +122,20 @@ async function confirmEscrow(req, res, next) {
     const newSenderConfirmed = isSender ? true : tx.sender_confirmed;
     const newReceiverConfirmed = isReceiver ? true : tx.receiver_confirmed;
 
-    if (newSenderConfirmed && newReceiverConfirmed) {
+    // Sender confirming = buyer says "I received it" = trigger Stripe capture & release
+    if (isSender) {
+      const released = await captureAndRelease(transaction_id);
+      if (released) {
+        await insertAuditLog({
+          actorName: profile.full_name || profile.email, actorEmail: profile.email,
+          action: 'transaction_confirmed', targetType: 'transaction',
+          targetId: transaction_id, targetLabel: tx.title || transaction_id,
+          severity: 'low', details: { new_status: 'released', stripe_captured: true },
+        });
+        return res.json(released);
+      }
+      // No Stripe payment — fall through to normal status update
       updates.status = 'released';
-    } else if (newSenderConfirmed) {
-      updates.status = 'sender_confirmed';
     } else if (newReceiverConfirmed) {
       updates.status = 'receiver_confirmed';
     }
@@ -120,6 +150,13 @@ async function confirmEscrow(req, res, next) {
     if (error) {
       return res.status(500).json({ error: error.message });
     }
+
+    await insertAuditLog({
+      actorName: profile.full_name || profile.email, actorEmail: profile.email,
+      action: 'transaction_confirmed', targetType: 'transaction',
+      targetId: transaction_id, targetLabel: tx.title || transaction_id,
+      severity: 'low', details: { new_status: data.status },
+    });
 
     return res.json(data);
   } catch (err) {
@@ -158,6 +195,9 @@ async function cancelEscrow(req, res, next) {
       return res.status(400).json({ error: `Transaction is already ${tx.status}` });
     }
 
+    // Void Stripe hold if transaction was funded via card
+    await voidAuthorization(transaction_id);
+
     const { data, error } = await supabase
       .from('escrow_transactions')
       .update({ status: 'cancelled' })
@@ -168,6 +208,13 @@ async function cancelEscrow(req, res, next) {
     if (error) {
       return res.status(500).json({ error: error.message });
     }
+
+    await insertAuditLog({
+      actorName: profile.full_name || profile.email, actorEmail: profile.email,
+      action: 'transaction_cancelled', targetType: 'transaction',
+      targetId: transaction_id, targetLabel: tx.title || transaction_id,
+      severity: 'medium',
+    });
 
     return res.json(data);
   } catch (err) {
@@ -223,6 +270,26 @@ async function disputeEscrow(req, res, next) {
     if (error) {
       return res.status(500).json({ error: error.message });
     }
+
+    // Create admin dispute record with ticket number
+    const ticketNumber = `DSP-${Date.now()}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
+    await supabase.from('disputes').insert({
+      ticket_number: ticketNumber,
+      transaction_id: String(transaction_id),
+      user_email: profile.email,
+      amount: tx.amount,
+      reason: reason.trim(),
+      description: reason.trim(),
+      priority: 'medium',
+      status: 'open',
+    });
+
+    await insertAuditLog({
+      actorName: profile.full_name || profile.email, actorEmail: profile.email,
+      action: 'dispute_filed', targetType: 'dispute',
+      targetId: transaction_id, targetLabel: ticketNumber,
+      severity: 'high', details: { reason: reason.trim(), amount: tx.amount, ticket_number: ticketNumber },
+    });
 
     return res.json(data);
   } catch (err) {

@@ -1,21 +1,24 @@
+const Stripe = require('stripe');
 const { supabase } = require('../config/supabase');
+const { insertAuditLog: _log } = require('../utils/auditLog');
 
-// Helper — insert an audit log entry (best-effort, never throws)
-async function insertAuditLog({ adminName, adminEmail, action, targetType, targetId, targetLabel, severity = 'low', details }) {
+const stripe = process.env.STRIPE_SECRET_KEY ? Stripe(process.env.STRIPE_SECRET_KEY) : null;
+
+// Send Expo push notification (best-effort, never throws)
+async function sendPush(expoPushToken, title, body, data = {}) {
+  if (!expoPushToken || !expoPushToken.startsWith('ExponentPushToken')) return;
   try {
-    await supabase.from('audit_logs').insert({
-      admin_name: adminName,
-      admin_email: adminEmail,
-      action,
-      target_type: targetType,
-      target_id: targetId,
-      target_label: targetLabel,
-      severity,
-      details,
+    await fetch('https://exp.host/--/api/v2/push/send', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify({ to: expoPushToken, sound: 'default', title, body, data }),
     });
-  } catch (_) {
-    // non-fatal
-  }
+  } catch (_) {}
+}
+
+// Wrap shared util with admin-specific field names for backward compat
+function insertAuditLog({ adminName, adminEmail, action, targetType, targetId, targetLabel, severity, details }) {
+  return _log({ actorName: adminName, actorEmail: adminEmail, action, targetType, targetId, targetLabel, severity, details });
 }
 
 // GET /api/admin/dashboard
@@ -56,8 +59,8 @@ async function getDashboard(req, res, next) {
 
     const { data: recentTxns } = await supabase
       .from('escrow_transactions')
-      .select('amount, created_at')
-      .gte('created_at', sevenDaysAgo.toISOString());
+      .select('amount, created_date')
+      .gte('created_date', sevenDaysAgo.toISOString());
 
     // Group by date
     const dailyMap = {};
@@ -68,7 +71,7 @@ async function getDashboard(req, res, next) {
       dailyMap[key] = 0;
     }
     (recentTxns || []).forEach(t => {
-      const key = (t.created_at || '').slice(0, 10);
+      const key = (t.created_date || '').slice(0, 10);
       if (key in dailyMap) {
         dailyMap[key] += t.amount || 0;
       }
@@ -150,17 +153,44 @@ async function updateUserStatus(req, res, next) {
   }
 }
 
+// Map internal status to frontend-expected status labels
+function normalizeStatus(status) {
+  switch (status) {
+    case 'pending_deposit': return 'pending';
+    case 'funded':          return 'pending';
+    case 'sender_confirmed':   return 'sender_ok';
+    case 'receiver_confirmed': return 'sender_ok';
+    case 'released':  return 'released';
+    case 'disputed':  return 'disputed';
+    case 'cancelled': return 'cancelled';
+    default: return status;
+  }
+}
+
 // GET /api/admin/transactions
 async function getTransactions(req, res, next) {
   try {
     const { data, error } = await supabase
       .from('escrow_transactions')
       .select('*')
-      .order('created_at', { ascending: false })
-      .limit(200);
+      .order('created_date', { ascending: false })
+      .limit(500);
 
     if (error) return res.status(500).json({ error: error.message });
-    return res.json(data || []);
+
+    const mapped = (data || []).map(tx => ({
+      ...tx,
+      // Normalise status to what frontend expects
+      status: normalizeStatus(tx.status),
+      // Alias receiver → recipient for frontend
+      recipient_name:  tx.receiver_name  || null,
+      recipient_email: tx.receiver_email || null,
+      // Derived fields
+      type:    'escrow',
+      flagged: tx.status === 'disputed',
+    }));
+
+    return res.json(mapped);
   } catch (err) {
     next(err);
   }
@@ -169,13 +199,47 @@ async function getTransactions(req, res, next) {
 // GET /api/admin/disputes
 async function getDisputes(req, res, next) {
   try {
-    const { data, error } = await supabase
+    const { data: disputes, error } = await supabase
       .from('disputes')
       .select('*')
       .order('created_date', { ascending: false });
 
     if (error) return res.status(500).json({ error: error.message });
-    return res.json(data || []);
+    if (!disputes?.length) return res.json([]);
+
+    // Enrich with transaction details (file_url, title, sender/receiver names)
+    const txIds = [...new Set(disputes.map(d => d.transaction_id).filter(Boolean))];
+    const { data: transactions } = txIds.length
+      ? await supabase
+          .from('escrow_transactions')
+          .select('id, title, dispute_file_url, sender_name, receiver_name, sender_email, receiver_email')
+          .in('id', txIds)
+      : { data: [] };
+
+    const txMap = {};
+    (transactions || []).forEach(tx => { txMap[tx.id] = tx; });
+
+    // Enrich with user full names
+    const userEmails = [...new Set(disputes.map(d => d.user_email).filter(Boolean))];
+    const { data: users } = userEmails.length
+      ? await supabase.from('users').select('email, full_name').in('email', userEmails)
+      : { data: [] };
+
+    const userMap = {};
+    (users || []).forEach(u => { userMap[u.email] = u; });
+
+    const enriched = disputes.map(d => ({
+      ...d,
+      user_name: userMap[d.user_email]?.full_name || d.user_email,
+      transaction_title: txMap[d.transaction_id]?.title || null,
+      dispute_file_url: txMap[d.transaction_id]?.dispute_file_url || null,
+      sender_name: txMap[d.transaction_id]?.sender_name || null,
+      receiver_name: txMap[d.transaction_id]?.receiver_name || null,
+      sender_email: txMap[d.transaction_id]?.sender_email || null,
+      receiver_email: txMap[d.transaction_id]?.receiver_email || null,
+    }));
+
+    return res.json(enriched);
   } catch (err) {
     next(err);
   }
@@ -185,11 +249,12 @@ async function getDisputes(req, res, next) {
 async function updateDispute(req, res, next) {
   try {
     const { id } = req.params;
-    const { status, resolution_notes } = req.body;
+    const { status, resolution_notes, priority } = req.body;
 
     const updates = { updated_at: new Date().toISOString() };
     if (status !== undefined)           updates.status           = status;
     if (resolution_notes !== undefined) updates.resolution_notes = resolution_notes;
+    if (priority !== undefined)         updates.priority         = priority;
 
     const { data, error } = await supabase
       .from('disputes')
@@ -200,9 +265,57 @@ async function updateDispute(req, res, next) {
 
     if (error) return res.status(500).json({ error: error.message });
 
+    // Sync escrow_transactions status when dispute is resolved or rejected
+    if (data?.transaction_id && status) {
+      if (status === 'resolved_release') {
+        await supabase
+          .from('escrow_transactions')
+          .update({ status: 'released' })
+          .eq('id', data.transaction_id);
+      } else if (status === 'resolved_refund') {
+        await supabase
+          .from('escrow_transactions')
+          .update({ status: 'cancelled' })
+          .eq('id', data.transaction_id);
+      } else if (status === 'rejected') {
+        // Revert transaction back to funded so parties can continue
+        await supabase
+          .from('escrow_transactions')
+          .update({ status: 'funded' })
+          .eq('id', data.transaction_id);
+      }
+    }
+
+    // Send push notification to the user who filed the dispute
+    if (data?.user_email && status) {
+      const { data: disputeUser } = await supabase
+        .from('users')
+        .select('expo_push_token')
+        .eq('email', data.user_email)
+        .maybeSingle();
+
+      if (disputeUser?.expo_push_token) {
+        const pushMessages = {
+          under_review:    { title: '🔍 Dispute Under Review', body: `Ticket ${data.ticket_number} is being reviewed by our team.` },
+          resolved_release: { title: '✅ Dispute Resolved', body: `Ticket ${data.ticket_number}: funds have been released.` },
+          resolved_refund:  { title: '✅ Dispute Resolved', body: `Ticket ${data.ticket_number}: a refund has been issued.` },
+          rejected:         { title: '❌ Dispute Rejected', body: `Ticket ${data.ticket_number} was not upheld. Please contact support.` },
+        };
+        const msg = pushMessages[status];
+        if (msg) {
+          await sendPush(disputeUser.expo_push_token, msg.title, msg.body, {
+            type: 'dispute_update',
+            status,
+            ticket_number: data.ticket_number,
+            transaction_id: data.transaction_id,
+          });
+        }
+      }
+    }
+
     let action = 'other';
     if (status === 'resolved_release' || status === 'resolved_refund') action = 'dispute_resolved';
-    else if (status === 'rejected') action = 'dispute_rejected';
+    else if (status === 'rejected')     action = 'dispute_rejected';
     else if (status === 'under_review') action = 'dispute_under_review';
 
     const admin = req.adminProfile || {};
@@ -614,6 +727,144 @@ async function updateAdminRole(req, res, next) {
   }
 }
 
+// GET /api/admin/withdrawals
+async function getWithdrawals(req, res, next) {
+  try {
+    const status = req.query.status || 'pending';
+
+    const { data, error } = await supabase
+      .from('withdrawal_requests')
+      .select('*')
+      .eq('status', status)
+      .order('created_at', { ascending: false });
+
+    if (error) return res.status(500).json({ error: error.message });
+
+    // Enrich with user info and bank accounts
+    const enriched = await Promise.all((data || []).map(async (wr) => {
+      const { data: user } = await supabase
+        .from('users')
+        .select('email, full_name, stripe_connect_account_id, stripe_connect_onboarded')
+        .eq('id', wr.user_id)
+        .single();
+
+      const { data: banks } = await supabase
+        .from('bank_accounts')
+        .select('*')
+        .eq('user_id', wr.user_id);
+
+      return { ...wr, user: user || {}, bank_accounts: banks || [] };
+    }));
+
+    return res.json(enriched);
+  } catch (err) {
+    next(err);
+  }
+}
+
+// POST /api/admin/withdrawals/:id/approve
+async function approveWithdrawal(req, res, next) {
+  try {
+    if (!stripe) return res.status(503).json({ error: 'Payment processing is not configured' });
+
+    const { id } = req.params;
+
+    const { data: wr, error: wrErr } = await supabase
+      .from('withdrawal_requests')
+      .select('*')
+      .eq('id', id)
+      .single();
+
+    if (wrErr || !wr) return res.status(404).json({ error: 'Withdrawal request not found' });
+    if (wr.status !== 'pending') return res.status(400).json({ error: `Request is already ${wr.status}` });
+
+    // Get user's connected Stripe account
+    const { data: user } = await supabase
+      .from('users')
+      .select('email, full_name, stripe_connect_account_id, stripe_connect_onboarded')
+      .eq('id', wr.user_id)
+      .single();
+
+    if (!user?.stripe_connect_account_id) {
+      return res.status(400).json({ error: 'User has not connected their bank account via Stripe' });
+    }
+
+    if (!user.stripe_connect_onboarded) {
+      return res.status(400).json({ error: 'User has not completed Stripe onboarding' });
+    }
+
+    const amountInCents = Math.round(Number(wr.amount) * 100);
+
+    // Transfer from TrustDepo Stripe balance to connected account
+    const transfer = await stripe.transfers.create({
+      amount: amountInCents,
+      currency: 'aed',
+      destination: user.stripe_connect_account_id,
+      transfer_group: `withdrawal_${id}`,
+      metadata: { withdrawal_id: String(id), user_email: user.email },
+    });
+
+    const { data, error } = await supabase
+      .from('withdrawal_requests')
+      .update({
+        status: 'approved',
+        stripe_transfer_id: transfer.id,
+        approved_at: new Date().toISOString(),
+        approved_by: req.user?.email || 'admin',
+      })
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) return res.status(500).json({ error: error.message });
+
+    await _log({
+      actorName: req.user?.email || 'admin', actorEmail: req.user?.email || 'admin',
+      action: 'withdrawal_approved', targetType: 'withdrawal',
+      targetId: String(id), targetLabel: `AED ${wr.amount} for ${user.email}`,
+      severity: 'medium', details: { transfer_id: transfer.id, amount: wr.amount },
+    });
+
+    return res.json(data);
+  } catch (err) {
+    next(err);
+  }
+}
+
+// POST /api/admin/withdrawals/:id/reject
+async function rejectWithdrawal(req, res, next) {
+  try {
+    const { id } = req.params;
+    const { reason } = req.body;
+
+    const { data: wr } = await supabase
+      .from('withdrawal_requests')
+      .select('*')
+      .eq('id', id)
+      .single();
+
+    if (!wr) return res.status(404).json({ error: 'Withdrawal request not found' });
+    if (wr.status !== 'pending') return res.status(400).json({ error: `Request is already ${wr.status}` });
+
+    const { data, error } = await supabase
+      .from('withdrawal_requests')
+      .update({
+        status: 'rejected',
+        rejected_at: new Date().toISOString(),
+        rejection_reason: reason || 'Rejected by admin',
+      })
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) return res.status(500).json({ error: error.message });
+
+    return res.json(data);
+  } catch (err) {
+    next(err);
+  }
+}
+
 module.exports = {
   getDashboard,
   getUsers,
@@ -636,4 +887,7 @@ module.exports = {
   getAdminUsers,
   inviteAdmin,
   updateAdminRole,
+  getWithdrawals,
+  approveWithdrawal,
+  rejectWithdrawal,
 };

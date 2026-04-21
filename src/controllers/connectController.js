@@ -21,7 +21,7 @@ async function addBankAccount(req, res, next) {
 
     const { data: profile, error: profileErr } = await supabase
       .from('users')
-      .select('id, email, full_name, stripe_connect_account_id, stripe_connect_onboarded')
+      .select('id, email, full_name, phone, date_of_birth, address, city, passport_number, emirates_id, stripe_connect_account_id, stripe_connect_onboarded')
       .eq('id', req.user.id)
       .single();
 
@@ -41,6 +41,20 @@ async function addBankAccount(req, res, next) {
       const firstName = nameParts[0];
       const lastName = nameParts.slice(1).join(' ') || firstName;
 
+      // Parse date_of_birth (stored as YYYY-MM-DD or DD/MM/YYYY)
+      let dob = { day: 1, month: 1, year: 1990 };
+      if (profile.date_of_birth) {
+        const parts = profile.date_of_birth.includes('-')
+          ? profile.date_of_birth.split('-')
+          : profile.date_of_birth.split('/');
+        if (parts.length === 3) {
+          const isISO = parts[0].length === 4;
+          dob = isISO
+            ? { year: Number(parts[0]), month: Number(parts[1]), day: Number(parts[2]) }
+            : { day: Number(parts[0]), month: Number(parts[1]), year: Number(parts[2]) };
+        }
+      }
+
       const account = await stripe.accounts.create({
         type: 'custom',
         country: 'GB',
@@ -55,14 +69,14 @@ async function addBankAccount(req, res, next) {
           last_name: lastName,
           email: profile.email,
           phone: profile.phone || '+447911123456',
-          dob: { day: 1, month: 1, year: 1990 },
+          dob,
           address: {
-            line1: '123 Test Street',
-            city: 'London',
+            line1: profile.address || '123 Test Street',
+            city: profile.city || 'London',
             postal_code: 'SW1A 1AA',
             country: 'GB',
           },
-          id_number: '000000000',
+          id_number: profile.passport_number || profile.emirates_id || '000000000',
           verification: {
             document: {
               front: 'file_identity_document_success',

@@ -37,13 +37,31 @@ async function addBankAccount(req, res, next) {
 
     // Create Custom Connect account if not exists
     if (!accountId) {
+      const nameParts = (profile.full_name || 'Test User').trim().split(' ');
+      const firstName = nameParts[0];
+      const lastName = nameParts.slice(1).join(' ') || firstName;
+
       const account = await stripe.accounts.create({
         type: 'custom',
         country: 'GB',
         email: profile.email,
+        business_type: 'individual',
         capabilities: {
           card_payments: { requested: true },
           transfers: { requested: true },
+        },
+        individual: {
+          first_name: firstName,
+          last_name: lastName,
+          email: profile.email,
+          phone: profile.phone || '+447911123456',
+          dob: { day: 1, month: 1, year: 1990 },
+          address: {
+            line1: '123 Test Street',
+            city: 'London',
+            postal_code: 'SW1A 1AA',
+            country: 'GB',
+          },
         },
         tos_acceptance: {
           date: Math.floor(Date.now() / 1000),

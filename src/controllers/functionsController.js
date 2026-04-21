@@ -303,8 +303,8 @@ async function withdrawalRequest(req, res, next) {
   try {
     const { amount } = req.body;
 
-    if (!amount || isNaN(amount) || Number(amount) < 100) {
-      return res.status(400).json({ error: 'amount must be at least AED 100' });
+    if (!amount || isNaN(amount) || Number(amount) < 2) {
+      return res.status(400).json({ error: 'amount must be at least AED 2' });
     }
 
     const { data, error } = await supabase

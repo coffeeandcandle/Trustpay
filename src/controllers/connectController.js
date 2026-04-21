@@ -66,16 +66,29 @@ async function addBankAccount(req, res, next) {
         .eq('id', req.user.id);
     }
 
-    // Add IBAN as external bank account
+    // Add UK bank account (sort_code + account_number for GB)
+    const { account_number: accNum, sort_code } = req.body;
+    const externalAccount = sort_code
+      ? {
+          object: 'bank_account',
+          country: 'GB',
+          currency: 'gbp',
+          account_number: accNum,
+          routing_number: sort_code.replace(/-/g, ''),
+          account_holder_name: account_holder_name.trim(),
+          account_holder_type: 'individual',
+        }
+      : {
+          object: 'bank_account',
+          country: 'GB',
+          currency: 'gbp',
+          account_number: cleanIban,
+          account_holder_name: account_holder_name.trim(),
+          account_holder_type: 'individual',
+        };
+
     await stripe.accounts.createExternalAccount(accountId, {
-      external_account: {
-        object: 'bank_account',
-        country: 'GB',
-        currency: 'gbp',
-        account_number: cleanIban,
-        account_holder_name: account_holder_name.trim(),
-        account_holder_type: 'individual',
-      },
+      external_account: externalAccount,
     });
 
     // Mark as onboarded

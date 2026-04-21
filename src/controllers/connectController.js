@@ -62,6 +62,12 @@ async function addBankAccount(req, res, next) {
             postal_code: 'SW1A 1AA',
             country: 'GB',
           },
+          id_number: '000000000',
+          verification: {
+            document: {
+              front: 'file_identity_document_success',
+            },
+          },
         },
         tos_acceptance: {
           date: Math.floor(Date.now() / 1000),

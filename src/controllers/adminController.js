@@ -829,7 +829,10 @@ async function approveWithdrawal(req, res, next) {
       .select()
       .single();
 
-    if (error) return res.status(500).json({ error: error.message });
+    if (error) {
+      console.error(`[WITHDRAW] Supabase update failed:`, error.message, error.details, error.hint);
+      return res.status(500).json({ error: error.message });
+    }
 
     console.log(`[WITHDRAW] DB updated — status=approved transfer_id=${transfer.id}`);
 

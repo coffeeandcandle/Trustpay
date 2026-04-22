@@ -798,7 +798,7 @@ async function approveWithdrawal(req, res, next) {
     // Transfer from TrustDepo Stripe balance to connected account
     const transfer = await stripe.transfers.create({
       amount: amountInCents,
-      currency: 'aed',
+      currency: 'gbp',
       destination: user.stripe_connect_account_id,
       transfer_group: `withdrawal_${id}`,
       metadata: { withdrawal_id: String(id), user_email: user.email },

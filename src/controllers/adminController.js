@@ -768,6 +768,7 @@ async function approveWithdrawal(req, res, next) {
     if (!stripe) return res.status(503).json({ error: 'Payment processing is not configured' });
 
     const { id } = req.params;
+    console.log(`[WITHDRAW] Approving withdrawal id=${id}`);
 
     const { data: wr, error: wrErr } = await supabase
       .from('withdrawal_requests')
@@ -778,12 +779,16 @@ async function approveWithdrawal(req, res, next) {
     if (wrErr || !wr) return res.status(404).json({ error: 'Withdrawal request not found' });
     if (wr.status !== 'pending') return res.status(400).json({ error: `Request is already ${wr.status}` });
 
+    console.log(`[WITHDRAW] Request found — amount=£${wr.amount} user_id=${wr.user_id} status=${wr.status}`);
+
     // Get user's connected Stripe account
     const { data: user } = await supabase
       .from('users')
       .select('email, full_name, stripe_connect_account_id, stripe_connect_onboarded')
       .eq('id', wr.user_id)
       .single();
+
+    console.log(`[WITHDRAW] User — email=${user?.email} connect_id=${user?.stripe_connect_account_id} onboarded=${user?.stripe_connect_onboarded}`);
 
     if (!user?.stripe_connect_account_id) {
       return res.status(400).json({ error: 'User has not connected their bank account via Stripe' });
@@ -794,6 +799,12 @@ async function approveWithdrawal(req, res, next) {
     }
 
     const amountInCents = Math.round(Number(wr.amount) * 100);
+    console.log(`[WITHDRAW] Creating Stripe transfer — amount=${amountInCents} pence (£${wr.amount}) destination=${user.stripe_connect_account_id}`);
+
+    // Check platform balance before transferring
+    const balance = await stripe.balance.retrieve();
+    const gbpAvailable = balance.available.find(b => b.currency === 'gbp');
+    console.log(`[WITHDRAW] Stripe platform GBP available balance: ${gbpAvailable ? gbpAvailable.amount : 0} pence`);
 
     // Transfer from TrustDepo Stripe balance to connected account
     const transfer = await stripe.transfers.create({
@@ -803,6 +814,8 @@ async function approveWithdrawal(req, res, next) {
       transfer_group: `withdrawal_${id}`,
       metadata: { withdrawal_id: String(id), user_email: user.email },
     });
+
+    console.log(`[WITHDRAW] Transfer created — transfer_id=${transfer.id} amount=${transfer.amount} currency=${transfer.currency}`);
 
     const { data, error } = await supabase
       .from('withdrawal_requests')
@@ -818,15 +831,18 @@ async function approveWithdrawal(req, res, next) {
 
     if (error) return res.status(500).json({ error: error.message });
 
+    console.log(`[WITHDRAW] DB updated — status=approved transfer_id=${transfer.id}`);
+
     await _log({
       actorName: req.user?.email || 'admin', actorEmail: req.user?.email || 'admin',
       action: 'withdrawal_approved', targetType: 'withdrawal',
-      targetId: String(id), targetLabel: `AED ${wr.amount} for ${user.email}`,
+      targetId: String(id), targetLabel: `£${wr.amount} for ${user.email}`,
       severity: 'medium', details: { transfer_id: transfer.id, amount: wr.amount },
     });
 
     return res.json(data);
   } catch (err) {
+    console.error(`[WITHDRAW] ERROR:`, err.message, err.raw || '');
     next(err);
   }
 }

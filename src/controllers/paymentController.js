@@ -23,7 +23,7 @@ async function createPaymentIntent(req, res, next) {
 
     const amountInCents = Math.round(Number(amount) * 100);
     if (amountInCents < 200) {
-      return res.status(400).json({ error: 'Minimum amount is 2.00 AED' });
+      return res.status(400).json({ error: 'Minimum amount is £2.00' });
     }
 
     const { data: profile } = await supabase
@@ -49,7 +49,7 @@ async function createPaymentIntent(req, res, next) {
 
     const paymentIntent = await stripe.paymentIntents.create({
       amount: amountInCents,
-      currency: 'aed',
+      currency: 'gbp',
       capture_method: 'manual', // Hold the funds — do NOT capture yet
       metadata: {
         transaction_id,

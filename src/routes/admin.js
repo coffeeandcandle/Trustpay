@@ -6,6 +6,9 @@ const {
   getUsers,
   updateUserStatus,
   getTransactions,
+  cancelTransaction,
+  pauseTransaction,
+  resumeTransaction,
   getDisputes,
   updateDispute,
   getReports,
@@ -63,6 +66,9 @@ router.get('/users', getUsers);
 router.put('/users/:id/status', updateUserStatus);
 
 router.get('/transactions', getTransactions);
+router.post('/transactions/:id/cancel', cancelTransaction);
+router.post('/transactions/:id/pause', pauseTransaction);
+router.post('/transactions/:id/resume', resumeTransaction);
 
 router.get('/disputes', getDisputes);
 router.put('/disputes/:id', updateDispute);

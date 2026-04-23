@@ -850,6 +850,163 @@ async function approveWithdrawal(req, res, next) {
   }
 }
 
+// POST /api/admin/transactions/:id/cancel
+async function cancelTransaction(req, res, next) {
+  try {
+    if (!stripe) return res.status(503).json({ error: 'Payment processing is not configured' });
+
+    const { id } = req.params;
+    console.log(`[CANCEL] Admin cancelling transaction id=${id}`);
+
+    const { data: tx, error: txErr } = await supabase
+      .from('escrow_transactions')
+      .select('*')
+      .eq('id', id)
+      .single();
+
+    if (txErr || !tx) return res.status(404).json({ error: 'Transaction not found' });
+    if (['released', 'cancelled'].includes(tx.status)) {
+      return res.status(400).json({ error: `Cannot cancel a ${tx.status} transaction` });
+    }
+
+    // Void or refund the Stripe PaymentIntent if it exists
+    if (tx.stripe_payment_intent_id) {
+      try {
+        const pi = await stripe.paymentIntents.retrieve(tx.stripe_payment_intent_id);
+        console.log(`[CANCEL] PaymentIntent status=${pi.status}`);
+
+        if (pi.status === 'requires_capture') {
+          // Funds authorized but not captured — just cancel (full refund to card)
+          await stripe.paymentIntents.cancel(tx.stripe_payment_intent_id);
+          console.log(`[CANCEL] PaymentIntent cancelled (authorization voided)`);
+        } else if (pi.status === 'succeeded') {
+          // Funds already captured — issue a refund
+          const refund = await stripe.refunds.create({ payment_intent: tx.stripe_payment_intent_id });
+          console.log(`[CANCEL] Refund created refund_id=${refund.id} amount=${refund.amount}`);
+        }
+      } catch (stripeErr) {
+        console.error(`[CANCEL] Stripe error:`, stripeErr.message);
+      }
+    }
+
+    const { data, error } = await supabase
+      .from('escrow_transactions')
+      .update({ status: 'cancelled' })
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) return res.status(500).json({ error: error.message });
+
+    const admin = req.adminProfile || {};
+    await _log({
+      actorName: admin.full_name || admin.email || 'admin',
+      actorEmail: admin.email || 'admin',
+      action: 'transaction_cancelled',
+      targetType: 'transaction',
+      targetId: id,
+      targetLabel: tx.title || id,
+      severity: 'high',
+      details: { amount: tx.amount, stripe_payment_intent_id: tx.stripe_payment_intent_id },
+    });
+
+    console.log(`[CANCEL] Done — transaction marked cancelled`);
+    return res.json(data);
+  } catch (err) {
+    console.error(`[CANCEL] ERROR:`, err.message);
+    next(err);
+  }
+}
+
+// POST /api/admin/transactions/:id/pause
+async function pauseTransaction(req, res, next) {
+  try {
+    const { id } = req.params;
+
+    const { data: tx, error: txErr } = await supabase
+      .from('escrow_transactions')
+      .select('*')
+      .eq('id', id)
+      .single();
+
+    if (txErr || !tx) return res.status(404).json({ error: 'Transaction not found' });
+    if (['released', 'cancelled'].includes(tx.status)) {
+      return res.status(400).json({ error: `Cannot pause a ${tx.status} transaction` });
+    }
+    if (tx.status === 'paused') {
+      return res.status(400).json({ error: 'Transaction is already paused' });
+    }
+
+    const { data, error } = await supabase
+      .from('escrow_transactions')
+      .update({ status: 'paused' })
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) return res.status(500).json({ error: error.message });
+
+    const admin = req.adminProfile || {};
+    await _log({
+      actorName: admin.full_name || admin.email || 'admin',
+      actorEmail: admin.email || 'admin',
+      action: 'transaction_paused',
+      targetType: 'transaction',
+      targetId: id,
+      targetLabel: tx.title || id,
+      severity: 'medium',
+      details: { amount: tx.amount, previous_status: tx.status },
+    });
+
+    return res.json(data);
+  } catch (err) {
+    next(err);
+  }
+}
+
+// POST /api/admin/transactions/:id/resume
+async function resumeTransaction(req, res, next) {
+  try {
+    const { id } = req.params;
+
+    const { data: tx, error: txErr } = await supabase
+      .from('escrow_transactions')
+      .select('*')
+      .eq('id', id)
+      .single();
+
+    if (txErr || !tx) return res.status(404).json({ error: 'Transaction not found' });
+    if (tx.status !== 'paused') {
+      return res.status(400).json({ error: 'Transaction is not paused' });
+    }
+
+    const { data, error } = await supabase
+      .from('escrow_transactions')
+      .update({ status: 'funded' })
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) return res.status(500).json({ error: error.message });
+
+    const admin = req.adminProfile || {};
+    await _log({
+      actorName: admin.full_name || admin.email || 'admin',
+      actorEmail: admin.email || 'admin',
+      action: 'transaction_resumed',
+      targetType: 'transaction',
+      targetId: id,
+      targetLabel: tx.title || id,
+      severity: 'medium',
+      details: { amount: tx.amount },
+    });
+
+    return res.json(data);
+  } catch (err) {
+    next(err);
+  }
+}
+
 // POST /api/admin/withdrawals/:id/reject
 async function rejectWithdrawal(req, res, next) {
   try {
@@ -889,6 +1046,9 @@ module.exports = {
   getUsers,
   updateUserStatus,
   getTransactions,
+  cancelTransaction,
+  pauseTransaction,
+  resumeTransaction,
   getDisputes,
   updateDispute,
   getReports,

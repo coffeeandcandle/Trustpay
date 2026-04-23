@@ -109,7 +109,7 @@ async function confirmEscrow(req, res, next) {
       return res.status(403).json({ error: 'You are not a party to this transaction' });
     }
 
-    if (['released', 'cancelled', 'disputed'].includes(tx.status)) {
+    if (['released', 'cancelled', 'disputed', 'paused'].includes(tx.status)) {
       return res.status(400).json({ error: `Cannot confirm a transaction with status: ${tx.status}` });
     }
 

@@ -695,6 +695,7 @@ async function inviteAdmin(req, res, next) {
         full_name: full_name || email.split('@')[0],
         role: role || 'admin',
       },
+      redirectTo: 'https://admin.trustdepo.com/accept-invite',
     });
 
     if (inviteError) {

@@ -17,8 +17,12 @@ async function sendPush(expoPushToken, title, body, data = {}) {
 }
 
 // Wrap shared util with admin-specific field names for backward compat
-function insertAuditLog({ adminName, adminEmail, action, targetType, targetId, targetLabel, severity, details }) {
-  return _log({ actorName: adminName, actorEmail: adminEmail, action, targetType, targetId, targetLabel, severity, details });
+function insertAuditLog({ adminName, adminEmail, action, targetType, targetId, targetLabel, severity, details, ip }) {
+  return _log({ actorName: adminName, actorEmail: adminEmail, action, targetType, targetId, targetLabel, severity, details, ip });
+}
+
+function getIp(req) {
+  return req?.headers?.['x-forwarded-for']?.split(',')[0]?.trim() || req?.ip || null;
 }
 
 // GET /api/admin/dashboard
@@ -841,6 +845,7 @@ async function approveWithdrawal(req, res, next) {
       action: 'withdrawal_approved', targetType: 'withdrawal',
       targetId: String(id), targetLabel: `£${wr.amount} for ${user.email}`,
       severity: 'medium', details: { transfer_id: transfer.id, amount: wr.amount },
+      ip: getIp(req),
     });
 
     return res.json(data);
@@ -908,6 +913,7 @@ async function cancelTransaction(req, res, next) {
       targetLabel: tx.title || id,
       severity: 'high',
       details: { amount: tx.amount, stripe_payment_intent_id: tx.stripe_payment_intent_id },
+      ip: getIp(req),
     });
 
     console.log(`[CANCEL] Done — transaction marked cancelled`);
@@ -956,6 +962,7 @@ async function pauseTransaction(req, res, next) {
       targetLabel: tx.title || id,
       severity: 'medium',
       details: { amount: tx.amount, previous_status: tx.status },
+      ip: getIp(req),
     });
 
     return res.json(data);

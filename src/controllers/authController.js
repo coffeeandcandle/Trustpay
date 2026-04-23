@@ -72,6 +72,7 @@ async function register(req, res, next) {
       action: 'user_registered', targetType: 'user',
       targetId: data.user.id, targetLabel: email,
       severity: 'low', details: { full_name, username: username || null },
+      ip: req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.ip,
     });
 
     // If email confirmation is DISABLED, Supabase returns a session immediately
@@ -130,6 +131,7 @@ async function login(req, res, next) {
       action: 'user_login', targetType: 'user',
       targetId: data.user.id, targetLabel: email,
       severity: 'low',
+      ip: req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.ip,
     });
 
     return res.json({

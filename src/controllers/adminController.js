@@ -669,7 +669,7 @@ async function inviteAdmin(req, res, next) {
       return res.status(400).json({ error: 'email is required' });
     }
 
-    // Check if user already exists
+    // Check if user already exists in public.users
     const { data: existing } = await supabase
       .from('users')
       .select('id, role')
@@ -677,7 +677,7 @@ async function inviteAdmin(req, res, next) {
       .maybeSingle();
 
     if (existing) {
-      // Update existing user's role
+      // Just update their role — no need to re-invite
       const { data, error } = await supabase
         .from('users')
         .update({ role: role || 'admin' })
@@ -689,19 +689,29 @@ async function inviteAdmin(req, res, next) {
       return res.json({ message: 'User role updated', user: data });
     }
 
-    // Create new user record (placeholder — actual auth invite would require email confirmation)
-    const { data, error } = await supabase
-      .from('users')
-      .insert({
-        email,
+    // Send Supabase auth invite email — user receives a link to set their password
+    const { data: inviteData, error: inviteError } = await supabase.auth.admin.inviteUserByEmail(email, {
+      data: {
         full_name: full_name || email.split('@')[0],
         role: role || 'admin',
-      })
-      .select()
-      .single();
+      },
+    });
 
-    if (error) return res.status(500).json({ error: error.message });
-    return res.status(201).json({ message: 'Admin invited', user: data });
+    if (inviteError) {
+      console.error('[INVITE] Supabase invite error:', inviteError.message);
+      return res.status(500).json({ error: inviteError.message });
+    }
+
+    // Upsert profile row so the user shows up in the admin list immediately
+    await supabase.from('users').upsert({
+      id: inviteData.user.id,
+      email,
+      full_name: full_name || email.split('@')[0],
+      role: role || 'admin',
+    });
+
+    console.log(`[INVITE] Invite email sent to ${email}`);
+    return res.status(201).json({ message: 'Invite email sent', user: inviteData.user });
   } catch (err) {
     next(err);
   }

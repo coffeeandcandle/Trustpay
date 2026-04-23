@@ -26,6 +26,7 @@ const {
   getAdminUsers,
   inviteAdmin,
   updateAdminRole,
+  toggleAdminStatus,
   getWithdrawals,
   approveWithdrawal,
   rejectWithdrawal,
@@ -98,5 +99,6 @@ router.post('/withdrawals/:id/reject', rejectWithdrawal);
 router.get('/admins', getAdminUsers);
 router.post('/admins/invite', inviteAdmin);
 router.put('/admins/:id/role', updateAdminRole);
+router.patch('/admins/:id/status', toggleAdminStatus);
 
 module.exports = router;

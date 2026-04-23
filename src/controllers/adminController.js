@@ -742,6 +742,30 @@ async function updateAdminRole(req, res, next) {
   }
 }
 
+// PATCH /api/admin/admins/:id/status
+async function toggleAdminStatus(req, res, next) {
+  try {
+    const { id } = req.params;
+    const { is_disabled } = req.body;
+
+    if (typeof is_disabled !== 'boolean') {
+      return res.status(400).json({ error: 'is_disabled (boolean) is required' });
+    }
+
+    const { data, error } = await supabase
+      .from('users')
+      .update({ is_disabled })
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) return res.status(500).json({ error: error.message });
+    return res.json(data);
+  } catch (err) {
+    next(err);
+  }
+}
+
 // GET /api/admin/withdrawals
 async function getWithdrawals(req, res, next) {
   try {
@@ -1084,6 +1108,7 @@ module.exports = {
   getAdminUsers,
   inviteAdmin,
   updateAdminRole,
+  toggleAdminStatus,
   getWithdrawals,
   approveWithdrawal,
   rejectWithdrawal,

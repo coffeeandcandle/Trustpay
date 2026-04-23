@@ -171,6 +171,10 @@ async function getMe(req, res, next) {
       return res.status(404).json({ error: 'User profile not found' });
     }
 
+    if (profile.is_disabled && (profile.role === 'admin' || profile.role === 'view_only')) {
+      return res.status(403).json({ error: 'Your account has been disabled. Contact your administrator.' });
+    }
+
     return res.json(profile);
   } catch (err) {
     next(err);

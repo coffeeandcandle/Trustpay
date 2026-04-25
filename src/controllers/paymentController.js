@@ -1,6 +1,12 @@
 const Stripe = require('stripe');
 const { supabase } = require('../config/supabase');
 const { insertAuditLog } = require('../utils/auditLog');
+const {
+  sendPaymentSuccessToSender,
+  sendPaymentReceivedToReceiver,
+  sendTransactionReleasedToSender,
+  sendTransactionReleasedToReceiver,
+} = require('../utils/email');
 
 const stripe = process.env.STRIPE_SECRET_KEY ? Stripe(process.env.STRIPE_SECRET_KEY) : null;
 
@@ -112,6 +118,27 @@ async function fundTransaction(req, res, next) {
       details: { amount: data.amount, payment_intent_id },
     });
 
+    // Send emails — fire-and-forget (never block the response)
+    const emailPayload = {
+      amount: data.amount,
+      title: data.title || 'Secure Payment',
+      transactionId: data.id,
+      date: data.created_at || new Date(),
+    };
+    Promise.all([
+      sendPaymentSuccessToSender({
+        ...emailPayload,
+        to: profile.email,
+        name: profile.full_name || profile.email,
+      }),
+      sendPaymentReceivedToReceiver({
+        ...emailPayload,
+        to: data.receiver_email,
+        name: data.receiver_name || data.receiver_email,
+        senderName: profile.full_name || profile.email,
+      }),
+    ]).catch(err => console.error('[EMAIL] fundTransaction email error:', err.message));
+
     return res.json(data);
   } catch (err) {
     next(err);
@@ -148,6 +175,28 @@ async function captureAndRelease(transaction_id) {
     .eq('id', transaction_id)
     .select()
     .single();
+
+  if (data) {
+    const releasePayload = {
+      amount: data.amount,
+      title: data.title || 'Secure Payment',
+      transactionId: data.id,
+      date: new Date(),
+    };
+    Promise.all([
+      sendTransactionReleasedToSender({
+        ...releasePayload,
+        to: data.sender_email,
+        name: data.sender_name || data.sender_email,
+      }),
+      sendTransactionReleasedToReceiver({
+        ...releasePayload,
+        to: data.receiver_email,
+        name: data.receiver_name || data.receiver_email,
+        senderName: data.sender_name || data.sender_email,
+      }),
+    ]).catch(err => console.error('[EMAIL] captureAndRelease email error:', err.message));
+  }
 
   return data;
 }

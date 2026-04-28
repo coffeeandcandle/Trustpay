@@ -12,6 +12,7 @@ const userRoutes = require('./routes/user');
 const adminRoutes = require('./routes/admin');
 const uploadRoutes = require('./routes/upload');
 const paymentRoutes = require('./routes/payments');
+const kycRoutes = require('./routes/kyc');
 const errorHandler = require('./middleware/errorHandler');
 
 const app = express();
@@ -192,6 +193,7 @@ app.use('/api/user', userRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/upload', uploadRoutes);
 app.use('/api/payments', paymentRoutes);
+app.use('/api/kyc', kycRoutes);
 
 // ── 404 handler
 app.use((req, res) => {

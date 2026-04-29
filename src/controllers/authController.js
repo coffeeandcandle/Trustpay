@@ -1,3 +1,4 @@
+const bcrypt = require('bcrypt');
 const { supabase, supabaseAnon } = require('../config/supabase');
 const { insertAuditLog } = require('../utils/auditLog');
 
@@ -368,4 +369,38 @@ async function changePassword(req, res, next) {
   }
 }
 
-module.exports = { register, login, logout, getMe, updateMe, deleteMe, verifyOtp, resendOtp, forgotPassword, changePassword };
+// POST /api/auth/set-pin  (authenticated)
+async function setPin(req, res, next) {
+  try {
+    const { pin } = req.body;
+    if (!pin || !/^\d{4}$/.test(pin)) {
+      return res.status(400).json({ error: 'PIN must be exactly 4 digits' });
+    }
+    const pin_hash = await bcrypt.hash(pin, 10);
+    const { error } = await supabase.from('users').update({ pin_hash }).eq('id', req.user.id);
+    if (error) return res.status(500).json({ error: error.message });
+    return res.json({ message: 'PIN set successfully' });
+  } catch (err) {
+    next(err);
+  }
+}
+
+// POST /api/auth/verify-pin  (authenticated)
+async function verifyPin(req, res, next) {
+  try {
+    const { pin } = req.body;
+    if (!pin || !/^\d{4}$/.test(pin)) {
+      return res.status(400).json({ error: 'PIN must be exactly 4 digits' });
+    }
+    const { data: user, error } = await supabase
+      .from('users').select('pin_hash').eq('id', req.user.id).single();
+    if (error || !user) return res.status(404).json({ error: 'User not found' });
+    if (!user.pin_hash) return res.status(400).json({ error: 'No PIN set for this account' });
+    const valid = await bcrypt.compare(pin, user.pin_hash);
+    return res.json({ valid });
+  } catch (err) {
+    next(err);
+  }
+}
+
+module.exports = { register, login, logout, getMe, updateMe, deleteMe, verifyOtp, resendOtp, forgotPassword, changePassword, setPin, verifyPin };

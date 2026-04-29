@@ -58,16 +58,49 @@ function findField(pairs, ...keywords) {
   return '';
 }
 
+const MONTH_MAP = { JAN:'01',FEB:'02',MAR:'03',APR:'04',MAY:'05',JUN:'06',JUL:'07',AUG:'08',SEP:'09',OCT:'10',NOV:'11',DEC:'12' };
+
+function normalizeDate(raw) {
+  if (!raw) return '';
+  raw = raw.trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+  // DD/MM/YYYY or DD-MM-YYYY or DD.MM.YYYY
+  let m = raw.match(/^(\d{2})[/\-.](\d{2})[/\-.](\d{4})$/);
+  if (m) return `${m[3]}-${m[2]}-${m[1]}`;
+  // YYYY/MM/DD
+  m = raw.match(/^(\d{4})[/\-.](\d{2})[/\-.](\d{2})$/);
+  if (m) return `${m[1]}-${m[2]}-${m[3]}`;
+  // DD MMM YYYY  e.g. 01 JAN 1990
+  m = raw.match(/^(\d{2})\s+([A-Za-z]{3})\s+(\d{4})$/);
+  if (m) { const mo = MONTH_MAP[m[2].toUpperCase()]; if (mo) return `${m[3]}-${mo}-${m[1]}`; }
+  // DDMMMYYYY (MRZ) e.g. 01JAN1990
+  m = raw.match(/^(\d{2})([A-Za-z]{3})(\d{4})$/);
+  if (m) { const mo = MONTH_MAP[m[2].toUpperCase()]; if (mo) return `${m[3]}-${mo}-${m[1]}`; }
+  return raw;
+}
+
+function normalizeGender(raw) {
+  if (!raw) return '';
+  const r = raw.trim().toUpperCase();
+  if (r === 'M' || r === 'MALE')   return 'Male';
+  if (r === 'F' || r === 'FEMALE') return 'Female';
+  return '';
+}
+
 function mapToOcrData(pairs, rawLines) {
   const rawText = rawLines.join('\n');
-  const dates = rawText.match(/\b(\d{2}[/\-.]\d{2}[/\-.]\d{4}|\d{4}[/\-.]\d{2}[/\-.]\d{2})\b/g) || [];
+  const dates = rawText.match(
+    /\b(\d{2}[/\-.]\d{2}[/\-.]\d{4}|\d{4}[/\-.]\d{2}[/\-.]\d{2}|\d{2}\s+[A-Za-z]{3}\s+\d{4}|\d{2}[A-Za-z]{3}\d{4})\b/g
+  ) || [];
 
   return {
-    fullName:       findField(pairs, 'name', 'surname', 'given name', 'full name') || '',
-    dateOfBirth:    findField(pairs, 'birth', 'dob', 'date of birth', 'born') || dates[0] || '',
-    documentNumber: findField(pairs, 'number', 'document no', 'passport no', 'licence no', 'id no', 'no.') || '',
-    expiryDate:     findField(pairs, 'expir', 'valid until', 'valid thru') || dates[1] || '',
-    address:        findField(pairs, 'address', 'residence', 'street', 'city') || '',
+    fullName:       findField(pairs, 'name', 'surname', 'given name', 'full name', 'given names') || '',
+    dateOfBirth:    normalizeDate(findField(pairs, 'birth', 'dob', 'date of birth', 'born') || dates[0] || ''),
+    documentNumber: findField(pairs, 'passport no', 'passport number', 'document no', 'licence no', 'id no', 'number', 'no.') || '',
+    expiryDate:     normalizeDate(findField(pairs, 'expir', 'valid until', 'valid thru') || dates[1] || ''),
+    address:        findField(pairs, 'address', 'residence', 'street') || '',
+    nationality:    findField(pairs, 'nationality', 'national', 'citizen') || '',
+    gender:         normalizeGender(findField(pairs, 'sex', 'gender')) || '',
   };
 }
 

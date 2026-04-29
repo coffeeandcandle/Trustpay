@@ -1,16 +1,9 @@
 const router = require('express').Router();
 const { authenticate } = require('../middleware/auth');
 const {
-  register,
-  login,
-  logout,
-  getMe,
-  updateMe,
-  deleteMe,
-  verifyOtp,
-  resendOtp,
-  forgotPassword,
-  changePassword,
+  register, login, logout, getMe, updateMe, deleteMe,
+  verifyOtp, resendOtp, forgotPassword, changePassword,
+  setPin, verifyPin,
 } = require('../controllers/authController');
 
 router.post('/register', register);
@@ -22,6 +15,8 @@ router.post('/logout', authenticate, logout);
 router.get('/me', authenticate, getMe);
 router.put('/me', authenticate, updateMe);
 router.put('/change-password', authenticate, changePassword);
+router.post('/set-pin', authenticate, setPin);
+router.post('/verify-pin', authenticate, verifyPin);
 router.delete('/me', authenticate, deleteMe);
 
 module.exports = router;

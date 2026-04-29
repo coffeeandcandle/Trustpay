@@ -60,22 +60,37 @@ function findField(pairs, ...keywords) {
 
 const MONTH_MAP = { JAN:'01',FEB:'02',MAR:'03',APR:'04',MAY:'05',JUN:'06',JUL:'07',AUG:'08',SEP:'09',OCT:'10',NOV:'11',DEC:'12' };
 
+function expandYear(y) {
+  // Convert 2-digit year to 4-digit: 00-29 → 2000-2029, 30-99 → 1930-1999
+  if (y.length === 2) return +y <= 29 ? `20${y}` : `19${y}`;
+  return y;
+}
+
+function pad2(n) { return String(n).padStart(2, '0'); }
+
 function normalizeDate(raw) {
   if (!raw) return '';
   raw = raw.trim();
+  // Already YYYY-MM-DD
   if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
-  // DD/MM/YYYY or DD-MM-YYYY or DD.MM.YYYY
-  let m = raw.match(/^(\d{2})[/\-.](\d{2})[/\-.](\d{4})$/);
-  if (m) return `${m[3]}-${m[2]}-${m[1]}`;
-  // YYYY/MM/DD
-  m = raw.match(/^(\d{4})[/\-.](\d{2})[/\-.](\d{2})$/);
-  if (m) return `${m[1]}-${m[2]}-${m[3]}`;
-  // DD MMM YYYY  e.g. 01 JAN 1990
-  m = raw.match(/^(\d{2})\s+([A-Za-z]{3})\s+(\d{4})$/);
-  if (m) { const mo = MONTH_MAP[m[2].toUpperCase()]; if (mo) return `${m[3]}-${mo}-${m[1]}`; }
-  // DDMMMYYYY (MRZ) e.g. 01JAN1990
-  m = raw.match(/^(\d{2})([A-Za-z]{3})(\d{4})$/);
-  if (m) { const mo = MONTH_MAP[m[2].toUpperCase()]; if (mo) return `${m[3]}-${mo}-${m[1]}`; }
+  // D/M/YYYY, DD/MM/YYYY, D/M/YY, DD/MM/YY (slash, dash, dot)
+  let m = raw.match(/^(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{2,4})$/);
+  if (m) return `${expandYear(m[3])}-${pad2(m[2])}-${pad2(m[1])}`;
+  // YYYY/MM/DD or YYYY-MM-DD
+  m = raw.match(/^(\d{4})[/\-.](\d{1,2})[/\-.](\d{1,2})$/);
+  if (m) return `${m[1]}-${pad2(m[2])}-${pad2(m[3])}`;
+  // D MMM YYYY or DD MMM YYYY or DD MMM YY (space separated)
+  m = raw.match(/^(\d{1,2})\s+([A-Za-z]{3,9})\s+(\d{2,4})$/);
+  if (m) {
+    const mo = MONTH_MAP[m[2].toUpperCase().slice(0, 3)];
+    if (mo) return `${expandYear(m[3])}-${mo}-${pad2(m[1])}`;
+  }
+  // DDMMMYYYY or DDMMYY (MRZ) e.g. 01JAN1990 or 01JAN90
+  m = raw.match(/^(\d{1,2})([A-Za-z]{3})(\d{2,4})$/);
+  if (m) {
+    const mo = MONTH_MAP[m[2].toUpperCase()];
+    if (mo) return `${expandYear(m[3])}-${mo}-${pad2(m[1])}`;
+  }
   return raw;
 }
 
@@ -90,7 +105,7 @@ function normalizeGender(raw) {
 function mapToOcrData(pairs, rawLines) {
   const rawText = rawLines.join('\n');
   const dates = rawText.match(
-    /\b(\d{2}[/\-.]\d{2}[/\-.]\d{4}|\d{4}[/\-.]\d{2}[/\-.]\d{2}|\d{2}\s+[A-Za-z]{3}\s+\d{4}|\d{2}[A-Za-z]{3}\d{4})\b/g
+    /\b(\d{1,2}[/\-.]\d{1,2}[/\-.]\d{2,4}|\d{4}[/\-.]\d{1,2}[/\-.]\d{1,2}|\d{1,2}\s+[A-Za-z]{3,9}\s+\d{2,4}|\d{1,2}[A-Za-z]{3}\d{2,4})\b/g
   ) || [];
 
   return {

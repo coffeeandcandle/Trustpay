@@ -102,6 +102,29 @@ function normalizeGender(raw) {
   return '';
 }
 
+// Passport numbers: 6–9 alphanumeric chars (letters + digits, at least one letter)
+// Avoids pure numeric strings which are usually tracking/barcode numbers
+function extractPassportNumber(pairs, rawLines) {
+  // Try specific labeled fields first (most reliable)
+  const labeled = findField(pairs,
+    'passport no', 'passport number', 'passport no.', 'document no', 'document number',
+    'no. du passeport', 'numéro', 'passnr', 'passeport'
+  );
+  if (labeled && /^[A-Z0-9]{6,9}$/i.test(labeled.replace(/\s/g, ''))) {
+    return labeled.replace(/\s/g, '').toUpperCase();
+  }
+
+  // Fallback: scan raw lines for passport-number-like patterns
+  // Must contain at least one letter and be 6-9 chars (excludes pure numeric barcodes)
+  const passportPattern = /\b([A-Z]{1,3}[0-9]{6,7}|[0-9]{1,2}[A-Z]{1,2}[0-9]{5,6}|[A-Z][0-9]{8})\b/g;
+  for (const line of rawLines) {
+    const matches = line.match(passportPattern);
+    if (matches) return matches[0].toUpperCase();
+  }
+
+  return labeled || '';
+}
+
 function mapToOcrData(pairs, rawLines) {
   const rawText = rawLines.join('\n');
   const dates = rawText.match(
@@ -111,7 +134,7 @@ function mapToOcrData(pairs, rawLines) {
   return {
     fullName:       findField(pairs, 'name', 'surname', 'given name', 'full name', 'given names') || '',
     dateOfBirth:    normalizeDate(findField(pairs, 'birth', 'dob', 'date of birth', 'born') || dates[0] || ''),
-    documentNumber: findField(pairs, 'passport no', 'passport number', 'document no', 'licence no', 'id no', 'number', 'no.') || '',
+    documentNumber: extractPassportNumber(pairs, rawLines),
     expiryDate:     normalizeDate(findField(pairs, 'expir', 'valid until', 'valid thru') || dates[1] || ''),
     address:        findField(pairs, 'address', 'residence', 'street') || '',
     nationality:    findField(pairs, 'nationality', 'national', 'citizen') || '',

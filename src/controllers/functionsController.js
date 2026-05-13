@@ -414,6 +414,86 @@ async function disputeEscrow(req, res, next) {
   }
 }
 
+// POST /api/functions/confirmPayment
+// Called by buyer's app after redirect from Trustap payment page.
+// Verifies payment on Trustap then auto-accepts deposit and marks funded.
+async function confirmPayment(req, res, next) {
+  try {
+    const { transaction_id } = req.body;
+    if (!transaction_id) return res.status(400).json({ error: 'transaction_id is required' });
+
+    const profile = await getProfile(req.user.id);
+
+    const { data: tx, error: txErr } = await supabase
+      .from('escrow_transactions')
+      .select('*')
+      .eq('id', transaction_id)
+      .single();
+
+    if (txErr || !tx) return res.status(404).json({ error: 'Transaction not found' });
+    if (tx.sender_email !== profile.email) return res.status(403).json({ error: 'Only the buyer can confirm payment' });
+
+    // Already funded — just return current state
+    if (tx.status !== 'pending_deposit') {
+      return res.json(tx);
+    }
+
+    if (!tx.trustap_transaction_id) {
+      return res.status(400).json({ error: 'No Trustap transaction linked' });
+    }
+
+    // Verify with Trustap that deposit was actually paid
+    let trustapTx;
+    try {
+      trustapTx = await trustap.getTransaction(tx.trustap_transaction_id);
+      console.log('[confirmPayment] Trustap status:', trustapTx.status, '| deposit_paid:', trustapTx.deposit_paid);
+    } catch (e) {
+      console.error('[confirmPayment] getTransaction failed:', e.message);
+      return res.status(502).json({ error: 'Could not verify payment with Trustap' });
+    }
+
+    // If Trustap has not received deposit yet, return current status
+    if (!trustapTx.deposit_paid) {
+      return res.json(tx);
+    }
+
+    // Auto-accept deposit on Trustap (seller side — done automatically here)
+    if (tx.trustap_seller_id) {
+      try {
+        await trustap.acceptDeposit(tx.trustap_transaction_id, tx.trustap_seller_id);
+        console.log('[confirmPayment] Deposit auto-accepted on Trustap');
+      } catch (e) {
+        // May already be accepted — log and continue
+        console.warn('[confirmPayment] acceptDeposit warning:', e.message);
+      }
+    }
+
+    const { data, error } = await supabase
+      .from('escrow_transactions')
+      .update({ status: 'funded' })
+      .eq('id', transaction_id)
+      .select()
+      .single();
+
+    if (error) return res.status(500).json({ error: error.message });
+
+    await insertAuditLog({
+      actorName: profile.full_name || profile.email,
+      actorEmail: profile.email,
+      action: 'payment_confirmed',
+      targetType: 'transaction',
+      targetId: transaction_id,
+      targetLabel: tx.title || transaction_id,
+      severity: 'low',
+      details: { trustap_status: trustapTx.status },
+    });
+
+    return res.json(data);
+  } catch (err) {
+    next(err);
+  }
+}
+
 // GET /api/functions/getPaymentSecret?transaction_id=...
 // Returns a fresh Stripe client secret for a pending_deposit transaction (buyer only)
 async function getPaymentSecret(req, res, next) {
@@ -533,4 +613,4 @@ async function withdrawalRequest(req, res, next) {
   }
 }
 
-module.exports = { createEscrow, getPaymentSecret, acceptDeposit, confirmEscrow, cancelEscrow, disputeEscrow, withdrawalRequest };
+module.exports = { createEscrow, confirmPayment, getPaymentSecret, acceptDeposit, confirmEscrow, cancelEscrow, disputeEscrow, withdrawalRequest };

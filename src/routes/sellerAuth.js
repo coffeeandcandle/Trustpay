@@ -31,7 +31,8 @@ const TOKEN_TTL_MS = 30 * 60 * 1000;
 // This ensures onShouldStartLoadWithRequest fires on both iOS and Android
 // (server-side 302 redirects are silently followed by Android WebView).
 function jsRedirect(res, url) {
-  res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><script>window.location.replace(${JSON.stringify(url)});</script></head><body></body></html>`);
+  const encoded = JSON.stringify(url);
+  res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>*{margin:0;padding:0;box-sizing:border-box}body{min-height:100vh;background:#0a0a0f;display:flex;align-items:center;justify-content:center;font-family:-apple-system,sans-serif;color:#fff;text-align:center}</style></head><body><p style="color:#94a3b8;font-size:15px">Returning to app...</p><script>window.location.replace(${encoded});</script></body></html>`);
 }
 
 // ── POST /api/seller/start-onboarding ────────────────────────────────────────

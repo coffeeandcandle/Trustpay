@@ -233,6 +233,11 @@ app.use('/api/payments', paymentRoutes);
 app.use('/api/kyc', kycRoutes);
 app.use('/api/webhooks', webhookRoutes);
 
+// ── Payment complete redirect — WebView intercepts this URL to detect payment success
+app.get('/api/payment-complete', (_req, res) => {
+  res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>body{margin:0;display:flex;align-items:center;justify-content:center;min-height:100vh;background:#0f0f1a;font-family:-apple-system,sans-serif;color:#fff;text-align:center;padding:24px}</style></head><body><div><div style="font-size:48px;margin-bottom:16px">✅</div><h2 style="margin:0 0 8px;color:#10b981">Payment Complete</h2><p style="color:#94a3b8;margin:0">Returning to app...</p></div></body></html>`);
+});
+
 // ── 404 handler
 app.use((req, res) => {
   res.status(404).json({ error: `Route ${req.method} ${req.path} not found` });

@@ -74,19 +74,24 @@ async function createEscrow(req, res, next) {
 
     // Get / create Trustap guest users for both parties
     // sender = buyer (pays), receiver = seller (receives funds)
+    console.log('[Trustap] creating/fetching guest users...');
     const [buyerTrustapId, sellerTrustapId] = await Promise.all([
       getOrCreateTrustapUser(profile, clientIp),
       getOrCreateTrustapUser(receiverProfile, '0.0.0.0'),
     ]);
+    console.log('[Trustap] buyer:', buyerTrustapId, '| seller:', sellerTrustapId);
 
     // Amount in smallest currency unit (pence for GBP)
     const priceInPence = Math.round(Number(amount) * 100);
 
     // Get Trustap fee for this amount
+    console.log('[Trustap] getting charge for', priceInPence, 'pence...');
     const chargeInfo = await trustap.getCharge(priceInPence, 'gbp');
+    console.log('[Trustap] charge:', JSON.stringify(chargeInfo));
 
     // Create P2P transaction with both parties as guest users in one call
     // receiver = seller, sender = buyer
+    console.log('[Trustap] creating P2P transaction...');
     const trustapTx = await trustap.createP2PTransactionWithGuests({
       sellerTrustapId,
       buyerTrustapId,

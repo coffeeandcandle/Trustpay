@@ -20,7 +20,7 @@ async function call(method, path, { body, trustapUser } = {}) {
   let data;
   try { data = await res.json(); } catch { data = {}; }
   if (!res.ok) {
-    const msg = data.error || data.message || `Trustap ${method} ${path} → HTTP ${res.status}`;
+    const msg = `Trustap ${method} ${path} → ${res.status}: ${data.error || data.message || 'unknown'}`;
     throw Object.assign(new Error(msg), { status: res.status, trustapData: data });
   }
   return data;

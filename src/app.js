@@ -14,6 +14,7 @@ const uploadRoutes = require('./routes/upload');
 const paymentRoutes = require('./routes/payments');
 const kycRoutes = require('./routes/kyc');
 const errorHandler = require('./middleware/errorHandler');
+const { supabase } = require('./config/supabase');
 
 const app = express();
 
@@ -52,10 +53,45 @@ if (process.env.NODE_ENV !== 'test') {
   app.use(morgan('dev'));
 }
 
-// ── Body parsing (raw for Stripe webhook, json for everything else)
+// ── Body parsing
 app.use('/api/payments/webhook', express.raw({ type: 'application/json' }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
+
+// ── Trustap webhook ─────────────────────────────────────────────────────────
+// Trustap POSTs events here when transaction status changes.
+// Events: p2p.transaction.funded, p2p.transaction.handover_confirmed,
+//         p2p.transaction.funds_released, p2p.transaction.complained
+app.post('/api/webhooks/trustap', async (req, res) => {
+  try {
+    const event = req.body;
+    const trustapTxId = String(event?.data?.id || event?.transaction_id || '');
+    const eventType   = event?.event || event?.type || '';
+
+    if (trustapTxId) {
+      // Map Trustap event → our transaction status
+      const statusMap = {
+        'p2p.transaction.funded':             'funded',
+        'p2p.transaction.handover_confirmed': 'sender_confirmed',
+        'p2p.transaction.funds_released':     'released',
+        'p2p.transaction.complained':         'disputed',
+      };
+      const newStatus = statusMap[eventType];
+      if (newStatus) {
+        await supabase
+          .from('escrow_transactions')
+          .update({ status: newStatus })
+          .eq('trustap_transaction_id', trustapTxId)
+          .neq('status', 'cancelled'); // never overwrite a cancelled tx
+      }
+    }
+
+    res.json({ received: true });
+  } catch (err) {
+    console.error('[Trustap Webhook]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // ── Health check
 app.get('/health', (req, res) => {

@@ -68,22 +68,23 @@ async function createP2PTransactionWithGuests({
   chargeCalculatorVersion,
   chargeConfig = 1,
 }) {
+  const requestBody = {
+    seller_id:                 sellerTrustapId,
+    buyer_id:                  buyerTrustapId,
+    creator_role:              'seller',
+    currency,
+    description,
+    deposit_price:             depositPrice,
+    deposit_charge:            depositCharge,
+    deposit_charge_seller:     0,
+    charge_calculator_version: chargeCalculatorVersion,
+    deposit_charge_config:     chargeConfig,
+    deposit_payment_method:    'bank_transfer',
+    skip_remainder:            true,
+  };
+  console.log('[Trustap] create_with_guest_user body:', JSON.stringify(requestBody));
   return call('POST', '/api/v1/p2p/me/transactions/create_with_guest_user', {
-    trustapUser: sellerTrustapId,
-    body: {
-      seller_id:                sellerTrustapId,
-      buyer_id:                 buyerTrustapId,
-      creator_role:             'seller',
-      currency,
-      description,
-      deposit_price:            depositPrice,
-      deposit_charge:           depositCharge,
-      deposit_charge_seller:    0,
-      charge_calculator_version: chargeCalculatorVersion,
-      deposit_charge_config:    chargeConfig,
-      deposit_payment_method:   'bank_transfer',
-      skip_remainder:           true,
-    },
+    body: requestBody,
   });
 }
 

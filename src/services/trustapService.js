@@ -1,8 +1,8 @@
 const BASE_URL = process.env.TRUSTAP_BASE_URL || 'https://dev.stage.trustap.com';
 
-// Trustap APIKey = HTTP Basic Auth with client_id as username and no password.
+// Trustap APIKey = HTTP Basic Auth with API key as username and no password.
 function basicAuth() {
-  return `Basic ${Buffer.from(`${process.env.TRUSTAP_CLIENT_ID}:`).toString('base64')}`;
+  return `Basic ${Buffer.from(`${process.env.TRUSTAP_API_KEY}:`).toString('base64')}`;
 }
 
 async function call(method, path, { body, trustapUser } = {}) {

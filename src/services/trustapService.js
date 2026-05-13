@@ -81,6 +81,7 @@ async function createTransaction({
     charge,
     charge_seller:             chargeSeller || 0,
     charge_calculator_version: chargeCalculatorVersion,
+    payment_method:            'bank_transfer',
   };
   console.log('[Trustap] createTransaction body:', JSON.stringify(requestBody));
   return call('POST', '/api/v1/me/transactions/create_with_guest_user', { body: requestBody });

@@ -90,18 +90,18 @@ async function createEscrow(req, res, next) {
     const chargeInfo = await trustap.getCharge(priceInPence, trustapCurrency);
     console.log('[Trustap] charge:', JSON.stringify(chargeInfo));
 
-    // Create P2P transaction with both parties as guest users in one call
-    // receiver = seller, sender = buyer
-    console.log('[Trustap] creating P2P transaction...');
-    const trustapTx = await trustap.createP2PTransactionWithGuests({
+    // Create online transaction with both parties as guest users
+    console.log('[Trustap] creating transaction...');
+    const trustapTx = await trustap.createTransaction({
       sellerTrustapId,
       buyerTrustapId,
       description: title,
       currency: trustapCurrency,
-      depositPrice: chargeInfo.price,
-      depositCharge: chargeInfo.charge,
+      price:                   chargeInfo.price,
+      charge:                  chargeInfo.charge,
+      chargeSeller:            chargeInfo.charge_seller || 0,
       chargeCalculatorVersion: chargeInfo.charge_calculator_version,
-      chargeConfig: chargeInfo.charge_config,
+      chargeConfig:            chargeInfo.charge_config,
     });
 
     // Get bank transfer payment details for the buyer
@@ -197,14 +197,12 @@ async function confirmEscrow(req, res, next) {
       return res.status(400).json({ error: `Cannot confirm a transaction with status: ${tx.status}` });
     }
 
-    // Call Trustap to confirm handover
-    const userTrustapId = isSender ? tx.trustap_buyer_id : tx.trustap_seller_id;
-    if (tx.trustap_transaction_id && userTrustapId) {
+    // Sender (buyer) confirming → release funds via Trustap confirm_delivery
+    if (isSender && tx.trustap_transaction_id && tx.trustap_buyer_id) {
       try {
-        await trustap.confirmHandover(tx.trustap_transaction_id, userTrustapId);
+        await trustap.confirmDelivery(tx.trustap_transaction_id, tx.trustap_buyer_id);
       } catch (e) {
-        console.error('[Trustap] confirmHandover failed:', e.message);
-        // Continue — update our DB regardless so the UI stays in sync
+        console.error('[Trustap] confirmDelivery failed:', e.message);
       }
     }
 

@@ -1,6 +1,6 @@
 const BASE_URL = process.env.TRUSTAP_BASE_URL || 'https://dev.stage.trustap.com';
 
-// Trustap APIKey = HTTP Basic Auth with API key as username and no password.
+// Trustap APIKey = HTTP Basic Auth with API key as username, no password.
 function basicAuth() {
   return `Basic ${Buffer.from(`${process.env.TRUSTAP_API_KEY}:`).toString('base64')}`;
 }
@@ -26,14 +26,15 @@ async function call(method, path, { body, trustapUser } = {}) {
   return data;
 }
 
-// Create a Trustap guest user (APIKey auth)
-// Returns { id, email, ... }
+// ── Guest users ────────────────────────────────────────────────────────────────
+
+// POST /api/v1/guest_users
 async function createGuestUser(email, firstName, lastName, ip = '0.0.0.0', countryCode = 'GB') {
   return call('POST', '/api/v1/guest_users', {
     body: {
       email,
-      first_name: firstName || 'User',
-      last_name:  lastName  || 'User',
+      first_name:   firstName || 'User',
+      last_name:    lastName  || 'User',
       country_code: countryCode,
       tos_acceptance: {
         ip,
@@ -43,28 +44,31 @@ async function createGuestUser(email, firstName, lastName, ip = '0.0.0.0', count
   });
 }
 
-// Get Trustap fee for a P2P bank-transfer transaction
-// price: amount in smallest currency unit (e.g. 1000 = £10.00)
-// Returns { price, charge, charge_calculator_version, charge_config, currency, ... }
-async function getCharge(price, currency = 'gbp') {
+// ── Online transactions ────────────────────────────────────────────────────────
+// These are /api/v1/transactions/... (no p2p prefix), using field names without
+// the "deposit_" prefix.
+
+// GET /api/v1/charge
+// Returns { charge, charge_seller, charge_calculator_version, charge_config, currency, price, ... }
+async function getCharge(price, currency = 'eur') {
   const qs = new URLSearchParams({
-    price: String(price),
+    price:          String(price),
     currency,
     payment_method: 'bank_transfer',
   });
-  return call('GET', `/api/v1/p2p/charge?${qs}`);
+  return call('GET', `/api/v1/charge?${qs}`);
 }
 
-// Create P2P transaction with both parties as guest users (APIKey auth).
-// Uses create_with_guest_user — seller creates, buyer is pre-joined.
-// Returns the full p2p.Transaction object.
-async function createP2PTransactionWithGuests({
+// POST /api/v1/me/transactions/create_with_guest_user  (APIKey, no Trustap-User needed)
+// Returns basic.Transaction { id, join_code, status, ... }
+async function createTransaction({
   sellerTrustapId,
   buyerTrustapId,
   description,
-  currency = 'gbp',
-  depositPrice,
-  depositCharge,
+  currency = 'eur',
+  price,
+  charge,
+  chargeSeller,
   chargeCalculatorVersion,
   chargeConfig = 1,
 }) {
@@ -74,60 +78,66 @@ async function createP2PTransactionWithGuests({
     creator_role:              'seller',
     currency,
     description,
-    deposit_price:             depositPrice,
-    deposit_charge:            depositCharge,
-    deposit_charge_seller:     0,
+    price,
+    charge,
+    charge_seller:             chargeSeller || 0,
     charge_calculator_version: chargeCalculatorVersion,
-    deposit_charge_config:     chargeConfig,
-    deposit_payment_method:    'bank_transfer',
-    skip_remainder:            true,
+    charge_config:             chargeConfig,
+    payment_method:            'bank_transfer',
   };
-  console.log('[Trustap] create_with_guest_user body:', JSON.stringify(requestBody));
-  return call('POST', '/api/v1/p2p/me/transactions/create_with_guest_user', {
-    body: requestBody,
-  });
+  console.log('[Trustap] createTransaction body:', JSON.stringify(requestBody));
+  return call('POST', '/api/v1/me/transactions/create_with_guest_user', { body: requestBody });
 }
 
-// Get bank transfer details so buyer knows where to send funds
-// Returns { account_number, sort_code, reference, bank_name, ... }
+// GET /api/v1/transactions/{id}/bank_transfer_details
 async function getBankTransferDetails(trustapTxId) {
-  return call('GET', `/api/v1/p2p/transactions/${trustapTxId}/bank_transfer_details`);
+  return call('GET', `/api/v1/transactions/${trustapTxId}/bank_transfer_details`);
 }
 
-// Accept deposit — called by seller (guest) to confirm buyer's bank transfer arrived
-async function acceptDeposit(trustapTxId, sellerTrustapId) {
-  return call('POST', `/api/v1/p2p/transactions/${trustapTxId}/accept_deposit_with_guest_seller`, {
+// POST /api/v1/transactions/{id}/accept_payment_with_guest_seller  (APIKey + Trustap-User)
+// Called by seller to acknowledge payment received (only needed if require_seller_acceptance feature is on)
+async function acceptPayment(trustapTxId, sellerTrustapId) {
+  return call('POST', `/api/v1/transactions/${trustapTxId}/accept_payment_with_guest_seller`, {
     trustapUser: sellerTrustapId,
   });
 }
 
-// Confirm handover — called by buyer or seller (guest) to release funds
-async function confirmHandover(trustapTxId, userTrustapId) {
-  return call('POST', `/api/v1/p2p/transactions/${trustapTxId}/confirm_handover_with_guest_user`, {
-    trustapUser: userTrustapId,
+// POST /api/v1/transactions/{id}/confirm_delivery_with_guest_buyer  (APIKey + Trustap-User)
+// Called by buyer to confirm delivery and release funds to seller
+async function confirmDelivery(trustapTxId, buyerTrustapId) {
+  return call('POST', `/api/v1/transactions/${trustapTxId}/confirm_delivery_with_guest_buyer`, {
+    trustapUser: buyerTrustapId,
   });
 }
 
-// Submit complaint — works for either guest buyer or guest seller
-async function complain(trustapTxId, userTrustapId, description) {
-  return call('POST', `/api/v1/p2p/transactions/${trustapTxId}/complain`, {
-    trustapUser: userTrustapId,
+// POST /api/v1/transactions/{id}/complain_with_guest_buyer  (APIKey + Trustap-User)
+async function complain(trustapTxId, buyerTrustapId, description) {
+  return call('POST', `/api/v1/transactions/${trustapTxId}/complain_with_guest_buyer`, {
+    trustapUser: buyerTrustapId,
     body: { description },
   });
 }
 
-// Get P2P transaction details
-async function getP2PTransaction(trustapTxId) {
-  return call('GET', `/api/v1/p2p/transactions/${trustapTxId}`);
+// POST /api/v1/transactions/{id}/cancel_with_guest_user  (APIKey + Trustap-User)
+async function cancelTransaction(trustapTxId, userTrustapId) {
+  return call('POST', `/api/v1/transactions/${trustapTxId}/cancel_with_guest_user`, {
+    trustapUser: userTrustapId,
+  });
+}
+
+// GET /api/v1/transactions/{id}
+async function getTransaction(trustapTxId) {
+  return call('GET', `/api/v1/transactions/${trustapTxId}`);
 }
 
 module.exports = {
   createGuestUser,
   getCharge,
-  createP2PTransactionWithGuests,
+  createTransaction,
   getBankTransferDetails,
-  acceptDeposit,
-  confirmHandover,
+  acceptPayment,
+  confirmDelivery,
   complain,
-  getP2PTransaction,
+  cancelTransaction,
+  getTransaction,
 };

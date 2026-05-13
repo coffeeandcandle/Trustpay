@@ -22,10 +22,41 @@ const { withRetry } = require('../utils/retry');
 const logger = require('../utils/logger');
 
 const REDIRECT_URI  = `${process.env.API_BASE_URL || 'https://uat-api.trustdepo.com'}/api/seller/callback`;
-const APP_DEEP_LINK = process.env.APP_DEEP_LINK   || 'trustdepo://seller-onboarding';
 
 // CSRF state token TTL: 30 minutes
 const TOKEN_TTL_MS = 30 * 60 * 1000;
+
+// Returns an HTML page that posts a message to the React Native WebView.
+// Falls back to trustdepo:// deep link for browsers (e.g. if opened outside the app).
+function bridgePage(status, reason = '') {
+  const emoji   = status === 'verified' ? '✅' : '❌';
+  const color   = status === 'verified' ? '#10b981' : '#ef4444';
+  const title   = status === 'verified' ? 'Verified!' : 'Verification Failed';
+  const deepLink = `trustdepo://seller-onboarding?status=${status}${reason ? `&reason=${encodeURIComponent(reason)}` : ''}`;
+  const payload  = JSON.stringify({ status, reason });
+
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<style>*{box-sizing:border-box;margin:0;padding:0}body{min-height:100vh;display:flex;align-items:center;justify-content:center;background:#0a0a0f;font-family:-apple-system,sans-serif;color:#fff;text-align:center;padding:24px}</style>
+</head><body>
+<div>
+  <div style="font-size:56px;margin-bottom:16px">${emoji}</div>
+  <h2 style="margin-bottom:8px;color:${color}">${title}</h2>
+  <p style="color:#94a3b8">Returning to app...</p>
+</div>
+<script>
+  (function() {
+    var payload = ${payload};
+    // React Native WebView bridge
+    if (window.ReactNativeWebView) {
+      window.ReactNativeWebView.postMessage(JSON.stringify(payload));
+      return;
+    }
+    // Fallback: deep link (works in dev builds / real devices)
+    window.location.href = '${deepLink}';
+  })();
+</script>
+</body></html>`;
+}
 
 // ── POST /api/seller/start-onboarding ────────────────────────────────────────
 router.post('/start-onboarding', authenticate, async (req, res) => {
@@ -92,8 +123,7 @@ router.post('/start-onboarding', authenticate, async (req, res) => {
 router.get('/callback', async (req, res) => {
   const { code, state, error, error_description } = req.query;
 
-  const redirectError = (reason) =>
-    res.redirect(`${APP_DEEP_LINK}?status=error&reason=${encodeURIComponent(reason)}`);
+  const redirectError = (reason) => res.send(bridgePage('error', reason));
 
   if (error) {
     logger.warn('SellerOnboarding', 'OAuth returned error', { error, error_description });
@@ -149,7 +179,7 @@ router.get('/callback', async (req, res) => {
       .eq('id', userId);
 
     logger.info('SellerOnboarding', 'Seller verified', { userId, trustapSellerId });
-    return res.redirect(`${APP_DEEP_LINK}?status=verified`);
+    return res.send(bridgePage('verified'));
   } catch (err) {
     logger.error('SellerOnboarding', 'OAuth callback failed', { error: err });
     return redirectError('internal_error');

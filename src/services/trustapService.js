@@ -1,10 +1,8 @@
 const BASE_URL = process.env.TRUSTAP_BASE_URL || 'https://dev.stage.trustap.com';
 
-// Trustap uses HTTP Basic Auth: client_id as username, client_secret as password.
-// No OAuth2 token exchange needed — all guest-user endpoints accept APIKey directly.
+// Trustap APIKey = HTTP Basic Auth with client_id as username and no password.
 function basicAuth() {
-  const creds = `${process.env.TRUSTAP_CLIENT_ID}:${process.env.TRUSTAP_CLIENT_SECRET}`;
-  return `Basic ${Buffer.from(creds).toString('base64')}`;
+  return `Basic ${Buffer.from(`${process.env.TRUSTAP_CLIENT_ID}:`).toString('base64')}`;
 }
 
 async function call(method, path, { body, trustapUser } = {}) {

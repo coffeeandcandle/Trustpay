@@ -85,22 +85,23 @@ async function createEscrow(req, res, next) {
     // Get Trustap fee for this amount
     const chargeInfo = await trustap.getCharge(priceInPence, 'gbp');
 
-    // Create P2P transaction on Trustap (receiver = seller)
-    const trustapTx = await trustap.createP2PTransaction(sellerTrustapId, {
+    // Create P2P transaction with both parties as guest users in one call
+    // receiver = seller, sender = buyer
+    const trustapTx = await trustap.createP2PTransactionWithGuests({
+      sellerTrustapId,
+      buyerTrustapId,
       description: title,
       currency: 'gbp',
       depositPrice: chargeInfo.price,
       depositCharge: chargeInfo.charge,
       chargeCalculatorVersion: chargeInfo.charge_calculator_version,
+      chargeConfig: chargeInfo.charge_config,
     });
-
-    // Buyer joins the transaction
-    await trustap.joinTransaction(trustapTx.join_code, buyerTrustapId);
 
     // Get bank transfer payment details for the buyer
     let bankDetails = null;
     try {
-      bankDetails = await trustap.getBankTransferDetails(trustapTx.id, buyerTrustapId);
+      bankDetails = await trustap.getBankTransferDetails(trustapTx.id);
     } catch (e) {
       console.warn('[Trustap] getBankTransferDetails failed:', e.message);
     }

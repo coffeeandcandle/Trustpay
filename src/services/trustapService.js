@@ -1,35 +1,17 @@
 const BASE_URL = process.env.TRUSTAP_BASE_URL || 'https://dev.stage.trustap.com';
-const TOKEN_URL =
-  process.env.TRUSTAP_TOKEN_URL ||
-  'https://sso.stage.trustap.com/auth/realms/trustap/protocol/openid-connect/token';
 
-let _token = null;
-let _tokenExp = 0;
-
-async function getToken() {
-  if (_token && Date.now() < _tokenExp - 30_000) return _token;
-  const res = await fetch(TOKEN_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      grant_type: 'client_credentials',
-      client_id: process.env.TRUSTAP_CLIENT_ID,
-      client_secret: process.env.TRUSTAP_CLIENT_SECRET,
-    }).toString(),
-  });
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Trustap auth failed (${res.status}): ${text}`);
-  }
-  const { access_token, expires_in } = await res.json();
-  _token = access_token;
-  _tokenExp = Date.now() + expires_in * 1000;
-  return _token;
+// Trustap uses HTTP Basic Auth: client_id as username, client_secret as password.
+// No OAuth2 token exchange needed — all guest-user endpoints accept APIKey directly.
+function basicAuth() {
+  const creds = `${process.env.TRUSTAP_CLIENT_ID}:${process.env.TRUSTAP_CLIENT_SECRET}`;
+  return `Basic ${Buffer.from(creds).toString('base64')}`;
 }
 
 async function call(method, path, { body, trustapUser } = {}) {
-  const token = await getToken();
-  const headers = { Authorization: `Bearer ${token}`, Accept: 'application/json' };
+  const headers = {
+    Authorization: basicAuth(),
+    Accept: 'application/json',
+  };
   if (trustapUser) headers['Trustap-User'] = String(trustapUser);
   const opts = { method, headers };
   if (body !== undefined) {
@@ -46,14 +28,15 @@ async function call(method, path, { body, trustapUser } = {}) {
   return data;
 }
 
-// Create a Trustap guest user
-// Returns { id, email, created_at }
-async function createGuestUser(email, firstName, lastName, ip = '0.0.0.0') {
+// Create a Trustap guest user (APIKey auth)
+// Returns { id, email, ... }
+async function createGuestUser(email, firstName, lastName, ip = '0.0.0.0', countryCode = 'GB') {
   return call('POST', '/api/v1/guest_users', {
     body: {
       email,
       first_name: firstName || 'User',
-      last_name: lastName || 'User',
+      last_name:  lastName  || 'User',
+      country_code: countryCode,
       tos_acceptance: {
         ip,
         unix_timestamp: Math.floor(Date.now() / 1000),
@@ -62,119 +45,90 @@ async function createGuestUser(email, firstName, lastName, ip = '0.0.0.0') {
   });
 }
 
-// Get Trustap fee for a P2P transaction
-// priceInSmallestUnit: e.g. 1000 = £10.00 in GBP
-// Returns { price, charge, charge_calculator_version, currency, ... }
-async function getCharge(priceInSmallestUnit, currency = 'gbp') {
-  const qs = new URLSearchParams({ currency, price: String(priceInSmallestUnit) });
+// Get Trustap fee for a P2P bank-transfer transaction
+// price: amount in smallest currency unit (e.g. 1000 = £10.00)
+// Returns { price, charge, charge_calculator_version, charge_config, currency, ... }
+async function getCharge(price, currency = 'gbp') {
+  const qs = new URLSearchParams({
+    price: String(price),
+    currency,
+    payment_method: 'bank_transfer',
+  });
   return call('GET', `/api/v1/p2p/charge?${qs}`);
 }
 
-// Create P2P transaction on behalf of seller
-// Returns { id, join_code, status, deposit_pricing, ... }
-async function createP2PTransaction(sellerTrustapId, {
+// Create P2P transaction with both parties as guest users (APIKey auth).
+// Uses create_with_guest_user — seller creates, buyer is pre-joined.
+// Returns the full p2p.Transaction object.
+async function createP2PTransactionWithGuests({
+  sellerTrustapId,
+  buyerTrustapId,
   description,
   currency = 'gbp',
   depositPrice,
   depositCharge,
   chargeCalculatorVersion,
+  chargeConfig = 1,
 }) {
-  return call('POST', '/api/v1/p2p/me/transactions', {
+  return call('POST', '/api/v1/p2p/me/transactions/create_with_guest_user', {
+    trustapUser: sellerTrustapId,
     body: {
-      role: 'seller',
+      seller_id:                sellerTrustapId,
+      buyer_id:                 buyerTrustapId,
+      creator_role:             'seller',
       currency,
       description,
-      deposit_price: depositPrice,
-      deposit_charge: depositCharge,
+      deposit_price:            depositPrice,
+      deposit_charge:           depositCharge,
+      deposit_charge_seller:    0,
       charge_calculator_version: chargeCalculatorVersion,
+      deposit_charge_config:    chargeConfig,
+      deposit_payment_method:   'bank_transfer',
+      skip_remainder:           true,
     },
+  });
+}
+
+// Get bank transfer details so buyer knows where to send funds
+// Returns { account_number, sort_code, reference, bank_name, ... }
+async function getBankTransferDetails(trustapTxId) {
+  return call('GET', `/api/v1/p2p/transactions/${trustapTxId}/bank_transfer_details`);
+}
+
+// Accept deposit — called by seller (guest) to confirm buyer's bank transfer arrived
+async function acceptDeposit(trustapTxId, sellerTrustapId) {
+  return call('POST', `/api/v1/p2p/transactions/${trustapTxId}/accept_deposit_with_guest_seller`, {
     trustapUser: sellerTrustapId,
   });
 }
 
-// Buyer joins the transaction using join_code
-async function joinTransaction(joinCode, buyerTrustapId) {
-  return call(
-    'POST',
-    `/api/v1/p2p/transactions_by_join_code/${encodeURIComponent(joinCode)}/join`,
-    { trustapUser: buyerTrustapId }
-  );
-}
-
-// Get Stripe client secret for buyer deposit payment
-// Returns { client_secret }
-async function getDepositClientSecret(trustapTxId, buyerTrustapId) {
-  return call(
-    'GET',
-    `/api/v1/p2p/transactions/${trustapTxId}/deposit_stripe_client_secret`,
-    { trustapUser: buyerTrustapId }
-  );
-}
-
-// Get bank transfer payment details for buyer
-// Returns { account_number, sort_code, reference, bank_name, ... }
-async function getBankTransferDetails(trustapTxId, buyerTrustapId) {
-  return call(
-    'GET',
-    `/api/v1/p2p/transactions/${trustapTxId}/bank_transfer_details`,
-    { trustapUser: buyerTrustapId }
-  );
-}
-
-// Confirm handover (called by buyer or seller)
+// Confirm handover — called by buyer or seller (guest) to release funds
 async function confirmHandover(trustapTxId, userTrustapId) {
-  return call('POST', `/api/v1/p2p/transactions/${trustapTxId}/confirm_handover`, {
+  return call('POST', `/api/v1/p2p/transactions/${trustapTxId}/confirm_handover_with_guest_user`, {
     trustapUser: userTrustapId,
   });
 }
 
-// File a complaint / dispute
+// Submit complaint — works for either guest buyer or guest seller
 async function complain(trustapTxId, userTrustapId, description) {
   return call('POST', `/api/v1/p2p/transactions/${trustapTxId}/complain`, {
-    body: { description },
     trustapUser: userTrustapId,
+    body: { description },
   });
 }
 
 // Get P2P transaction details
-async function getP2PTransaction(trustapTxId, userTrustapId) {
-  return call('GET', `/api/v1/p2p/transactions/${trustapTxId}`, {
-    trustapUser: userTrustapId,
-  });
-}
-
-// Set payout bank account for a user (required before withdrawal)
-// routingNumber = sort code for UK accounts
-async function setPayoutBankAccount(userTrustapId, { accountHolderName, accountNumber, routingNumber }) {
-  return call('POST', '/api/v1/me/debit_account', {
-    body: {
-      type: 'bank',
-      bank_details: {
-        account_holder_name: accountHolderName,
-        account_number: accountNumber,
-        routing_number: routingNumber,
-      },
-    },
-    trustapUser: userTrustapId,
-  });
-}
-
-// Get user's available balance in Trustap
-// Returns { available: [{ amount, currency }] }
-async function getBalance(userTrustapId) {
-  return call('GET', '/api/v1/me/balances', { trustapUser: userTrustapId });
+async function getP2PTransaction(trustapTxId) {
+  return call('GET', `/api/v1/p2p/transactions/${trustapTxId}`);
 }
 
 module.exports = {
   createGuestUser,
   getCharge,
-  createP2PTransaction,
-  joinTransaction,
-  getDepositClientSecret,
+  createP2PTransactionWithGuests,
   getBankTransferDetails,
+  acceptDeposit,
   confirmHandover,
   complain,
   getP2PTransaction,
-  setPayoutBankAccount,
-  getBalance,
 };

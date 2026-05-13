@@ -44,16 +44,21 @@ function bridgePage(status, reason = '') {
   <p style="color:#94a3b8">Returning to app...</p>
 </div>
 <script>
-  (function() {
-    var payload = ${payload};
-    // React Native WebView bridge
-    if (window.ReactNativeWebView) {
-      window.ReactNativeWebView.postMessage(JSON.stringify(payload));
-      return;
-    }
-    // Fallback: deep link (works in dev builds / real devices)
-    window.location.href = '${deepLink}';
-  })();
+  var _payload = '${payload.replace(/'/g, "\\'")}';
+  var _deepLink = '${deepLink}';
+  function _send() {
+    try {
+      if (window.ReactNativeWebView) {
+        window.ReactNativeWebView.postMessage(_payload);
+        return;
+      }
+    } catch(e) {}
+    window.location.href = _deepLink;
+  }
+  // Try immediately, then on DOMContentLoaded, then on load — covers all timing cases
+  try { _send(); } catch(e) {}
+  document.addEventListener('DOMContentLoaded', function() { setTimeout(_send, 100); });
+  window.addEventListener('load', function() { setTimeout(_send, 300); });
 </script>
 </body></html>`;
 }

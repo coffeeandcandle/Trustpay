@@ -50,7 +50,7 @@ async function createGuestUser(email, firstName, lastName, ip = '0.0.0.0', count
 
 // GET /api/v1/charge
 // Returns { charge, charge_seller, charge_calculator_version, charge_config, currency, price, ... }
-async function getCharge(price, currency = 'eur') {
+async function getCharge(price, currency = 'gbp') {
   const qs = new URLSearchParams({
     price:          String(price),
     currency,
@@ -65,7 +65,7 @@ async function createTransaction({
   sellerTrustapId,
   buyerTrustapId,
   description,
-  currency = 'eur',
+  currency = 'gbp',
   price,
   charge,
   chargeSeller,

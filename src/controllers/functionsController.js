@@ -233,6 +233,24 @@ async function confirmEscrow(req, res, next) {
 
     if (error) return res.status(500).json({ error: error.message });
 
+    // Auto claim_for_seller if receiver has a full Trustap account
+    if (data.status === 'released' && tx.trustap_transaction_id) {
+      const { data: receiverProfile } = await supabase
+        .from('users')
+        .select('trustap_seller_user_id')
+        .eq('email', tx.receiver_email)
+        .maybeSingle();
+
+      if (receiverProfile?.trustap_seller_user_id) {
+        try {
+          await trustap.claimForSeller(tx.trustap_transaction_id, receiverProfile.trustap_seller_user_id);
+          console.log(`[Trustap] claim_for_seller succeeded for tx ${tx.trustap_transaction_id}`);
+        } catch (e) {
+          console.error('[Trustap] claim_for_seller failed:', e.message);
+        }
+      }
+    }
+
     // Send release emails when fully released
     if (data.status === 'released') {
       const releasePayload = {

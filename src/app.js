@@ -14,6 +14,7 @@ const uploadRoutes = require('./routes/upload');
 const paymentRoutes = require('./routes/payments');
 const kycRoutes = require('./routes/kyc');
 const webhookRoutes = require('./routes/webhooks');
+const sellerAuthRoutes = require('./routes/sellerAuth');
 const errorHandler = require('./middleware/errorHandler');
 const { supabase } = require('./config/supabase');
 
@@ -232,6 +233,7 @@ app.use('/api/upload', uploadRoutes);
 app.use('/api/payments', paymentRoutes);
 app.use('/api/kyc', kycRoutes);
 app.use('/api/webhooks', webhookRoutes);
+app.use('/api/seller', sellerAuthRoutes);
 
 // ── Payment complete redirect — WebView intercepts this URL to detect payment success
 app.get('/api/payment-complete', (_req, res) => {

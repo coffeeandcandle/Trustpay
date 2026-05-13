@@ -117,6 +117,63 @@ async function getTransaction(trustapTxId) {
   return call('GET', `/api/v1/p2p/transactions/${trustapTxId}`);
 }
 
+// ── Seller OAuth ───────────────────────────────────────────────────────────────
+
+const SSO_BASE = 'https://sso.trustap.com/auth/realms/trustap-stage';
+
+// Build the OAuth authorization URL — redirect seller to this URL to create full account
+function getSellerOAuthUrl(redirectUri, state) {
+  const clientId = process.env.TRUSTAP_CLIENT_ID;
+  const scopes = [
+    'openid', 'profile',
+    'p2p_tx:offline_accept_deposit',
+    'p2p_tx:offline_claim',
+    'p2p_tx:offline_confirm_handover',
+    'p2p_tx:offline_complain',
+  ].join(' ');
+  const params = new URLSearchParams({
+    client_id:     clientId,
+    redirect_uri:  redirectUri,
+    response_type: 'code',
+    scope:         scopes,
+    state:         state || '',
+  });
+  return `${SSO_BASE}/protocol/openid-connect/auth?${params}`;
+}
+
+// Exchange OAuth code for token — returns { access_token, id_token, refresh_token }
+async function exchangeOAuthCode(code, redirectUri) {
+  const params = new URLSearchParams({
+    client_id:     process.env.TRUSTAP_CLIENT_ID,
+    client_secret: process.env.TRUSTAP_CLIENT_SECRET,
+    grant_type:    'authorization_code',
+    code,
+    redirect_uri:  redirectUri,
+  });
+  const res = await fetch(`${SSO_BASE}/protocol/openid-connect/token`, {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body:    params.toString(),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error_description || 'OAuth token exchange failed');
+  return data;
+}
+
+// Extract full Trustap user ID from id_token JWT (sub claim)
+function extractUserIdFromToken(idToken) {
+  const payload = idToken.split('.')[1];
+  const decoded = JSON.parse(Buffer.from(payload, 'base64url').toString());
+  return decoded.sub;
+}
+
+// POST /api/v1/p2p/transactions/{id}/claim_for_seller
+async function claimForSeller(trustapTxId, sellerFullUserId) {
+  return call('POST', `/api/v1/p2p/transactions/${trustapTxId}/claim_for_seller`, {
+    trustapUser: sellerFullUserId,
+  });
+}
+
 module.exports = {
   createGuestUser,
   getCharge,
@@ -126,4 +183,8 @@ module.exports = {
   confirmHandover,
   complain,
   getTransaction,
+  getSellerOAuthUrl,
+  exchangeOAuthCode,
+  extractUserIdFromToken,
+  claimForSeller,
 };

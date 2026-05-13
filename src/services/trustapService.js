@@ -51,11 +51,8 @@ async function createGuestUser(email, firstName, lastName, ip = '0.0.0.0', count
 // GET /api/v1/charge
 // Returns { charge, charge_seller, charge_calculator_version, charge_config, currency, price, ... }
 async function getCharge(price, currency = 'gbp') {
-  const qs = new URLSearchParams({
-    price:          String(price),
-    currency,
-    payment_method: 'bank_transfer',
-  });
+  const paymentMethod = process.env.TRUSTAP_PAYMENT_METHOD || 'card';
+  const qs = new URLSearchParams({ price: String(price), currency, payment_method: paymentMethod });
   return call('GET', `/api/v1/charge?${qs}`);
 }
 
@@ -81,7 +78,7 @@ async function createTransaction({
     charge,
     charge_seller:             chargeSeller || 0,
     charge_calculator_version: chargeCalculatorVersion,
-    payment_method:            'bank_transfer',
+    ...(process.env.TRUSTAP_PAYMENT_METHOD && { payment_method: process.env.TRUSTAP_PAYMENT_METHOD }),
   };
   console.log('[Trustap] createTransaction body:', JSON.stringify(requestBody));
   return call('POST', '/api/v1/me/transactions/create_with_guest_user', { body: requestBody });

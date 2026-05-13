@@ -414,6 +414,70 @@ async function disputeEscrow(req, res, next) {
   }
 }
 
+// POST /api/functions/acceptDeposit
+// Body: { transaction_id }
+// Called by the receiver (seller) after the buyer has completed card payment
+async function acceptDeposit(req, res, next) {
+  try {
+    const { transaction_id } = req.body;
+    if (!transaction_id) {
+      return res.status(400).json({ error: 'transaction_id is required' });
+    }
+
+    const profile = await getProfile(req.user.id);
+
+    const { data: tx, error: txErr } = await supabase
+      .from('escrow_transactions')
+      .select('*')
+      .eq('id', transaction_id)
+      .single();
+
+    if (txErr || !tx) {
+      return res.status(404).json({ error: 'Transaction not found' });
+    }
+
+    if (tx.receiver_email !== profile.email) {
+      return res.status(403).json({ error: 'Only the receiver can accept the deposit' });
+    }
+
+    if (tx.status !== 'pending_deposit') {
+      return res.status(400).json({ error: `Cannot accept deposit for a transaction with status: ${tx.status}` });
+    }
+
+    if (tx.trustap_transaction_id && tx.trustap_seller_id) {
+      try {
+        await trustap.acceptDeposit(tx.trustap_transaction_id, tx.trustap_seller_id);
+      } catch (e) {
+        console.error('[Trustap] acceptDeposit failed:', e.message);
+      }
+    }
+
+    const { data, error } = await supabase
+      .from('escrow_transactions')
+      .update({ status: 'funded' })
+      .eq('id', transaction_id)
+      .select()
+      .single();
+
+    if (error) return res.status(500).json({ error: error.message });
+
+    await insertAuditLog({
+      actorName: profile.full_name || profile.email,
+      actorEmail: profile.email,
+      action: 'deposit_accepted',
+      targetType: 'transaction',
+      targetId: transaction_id,
+      targetLabel: tx.title || transaction_id,
+      severity: 'low',
+      details: { new_status: 'funded' },
+    });
+
+    return res.json(data);
+  } catch (err) {
+    next(err);
+  }
+}
+
 // POST /api/functions/withdrawalRequest
 // Body: { amount }
 async function withdrawalRequest(req, res, next) {
@@ -442,4 +506,4 @@ async function withdrawalRequest(req, res, next) {
   }
 }
 
-module.exports = { createEscrow, confirmEscrow, cancelEscrow, disputeEscrow, withdrawalRequest };
+module.exports = { createEscrow, acceptDeposit, confirmEscrow, cancelEscrow, disputeEscrow, withdrawalRequest };

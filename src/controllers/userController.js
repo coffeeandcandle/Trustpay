@@ -284,4 +284,46 @@ async function sendChatMessage(req, res, next) {
   }
 }
 
-module.exports = { getBankAccounts, addBankAccount, deleteBankAccount, lookupByUsername, savePushToken, getMyDisputes, startChat, getChatMessages, sendChatMessage };
+// GET /api/user/balance
+async function getBalance(req, res, next) {
+  try {
+    const { data: profile } = await supabase
+      .from('users')
+      .select('email')
+      .eq('id', req.user.id)
+      .single();
+
+    if (!profile) return res.status(404).json({ error: 'User not found' });
+
+    // Released transactions where this user is the receiver
+    const { data: releasedTx } = await supabase
+      .from('escrow_transactions')
+      .select('amount')
+      .eq('receiver_email', profile.email)
+      .eq('status', 'released');
+
+    const totalEarned = (releasedTx || []).reduce((sum, tx) => sum + Number(tx.amount || 0), 0);
+
+    // Withdrawals (pending or completed reduce available balance)
+    const { data: withdrawals } = await supabase
+      .from('withdrawal_requests')
+      .select('amount, status')
+      .eq('user_id', req.user.id)
+      .in('status', ['pending', 'completed']);
+
+    const totalWithdrawn = (withdrawals || []).reduce((sum, w) => sum + Number(w.amount || 0), 0);
+    const pendingWithdrawal = (withdrawals || [])
+      .filter(w => w.status === 'pending')
+      .reduce((sum, w) => sum + Number(w.amount || 0), 0);
+
+    return res.json({
+      available_balance: Math.max(0, totalEarned - totalWithdrawn),
+      total_earned: totalEarned,
+      pending_withdrawal: pendingWithdrawal,
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
+module.exports = { getBankAccounts, addBankAccount, deleteBankAccount, lookupByUsername, savePushToken, getMyDisputes, startChat, getChatMessages, sendChatMessage, getBalance };

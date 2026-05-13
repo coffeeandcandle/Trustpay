@@ -157,7 +157,11 @@ router.get('/callback', async (req, res) => {
       .eq('id', userId);
 
     logger.info('SellerOnboarding', 'Seller verified', { userId, trustapSellerId });
-    return jsRedirect(res, `${APP_RETURN_BASE}?status=verified`);
+    // Phase 2: redirect to Trustap hosted profile page for KYC + bank details.
+    // The WebView incognito session carries the Trustap login cookie from Phase 1.
+    const profileUrl = process.env.TRUSTAP_PROFILE_URL ||
+      `https://app.stage.trustap.com/profile/payout/personal?edit=true&client_id=${process.env.TRUSTAP_CLIENT_ID}`;
+    return jsRedirect(res, profileUrl);
   } catch (err) {
     logger.error('SellerOnboarding', 'OAuth callback failed', { error: err });
     return redirectError('internal_error');

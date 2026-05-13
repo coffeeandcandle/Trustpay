@@ -2,6 +2,7 @@ const router = require('express').Router();
 const { authenticate } = require('../middleware/auth');
 const {
   createEscrow,
+  getPaymentSecret,
   acceptDeposit,
   confirmEscrow,
   cancelEscrow,
@@ -12,6 +13,7 @@ const {
 router.use(authenticate);
 
 router.post('/createEscrow', createEscrow);
+router.get('/getPaymentSecret', getPaymentSecret);
 router.post('/acceptDeposit', acceptDeposit);
 router.post('/confirmEscrow', confirmEscrow);
 router.post('/cancelEscrow', cancelEscrow);

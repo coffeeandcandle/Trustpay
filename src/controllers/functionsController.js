@@ -414,6 +414,33 @@ async function disputeEscrow(req, res, next) {
   }
 }
 
+// GET /api/functions/getPaymentSecret?transaction_id=...
+// Returns a fresh Stripe client secret for a pending_deposit transaction (buyer only)
+async function getPaymentSecret(req, res, next) {
+  try {
+    const { transaction_id } = req.query;
+    if (!transaction_id) return res.status(400).json({ error: 'transaction_id is required' });
+
+    const profile = await getProfile(req.user.id);
+
+    const { data: tx, error: txErr } = await supabase
+      .from('escrow_transactions')
+      .select('*')
+      .eq('id', transaction_id)
+      .single();
+
+    if (txErr || !tx) return res.status(404).json({ error: 'Transaction not found' });
+    if (tx.sender_email !== profile.email) return res.status(403).json({ error: 'Only the sender can pay' });
+    if (tx.status !== 'pending_deposit') return res.status(400).json({ error: 'Transaction is not pending payment' });
+    if (!tx.trustap_transaction_id || !tx.trustap_buyer_id) return res.status(400).json({ error: 'Payment not available for this transaction' });
+
+    const secretData = await trustap.getStripeClientSecret(tx.trustap_transaction_id, tx.trustap_buyer_id);
+    return res.json({ stripe_client_secret: secretData.client_secret });
+  } catch (err) {
+    next(err);
+  }
+}
+
 // POST /api/functions/acceptDeposit
 // Body: { transaction_id }
 // Called by the receiver (seller) after the buyer has completed card payment
@@ -506,4 +533,4 @@ async function withdrawalRequest(req, res, next) {
   }
 }
 
-module.exports = { createEscrow, acceptDeposit, confirmEscrow, cancelEscrow, disputeEscrow, withdrawalRequest };
+module.exports = { createEscrow, getPaymentSecret, acceptDeposit, confirmEscrow, cancelEscrow, disputeEscrow, withdrawalRequest };

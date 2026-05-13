@@ -1,7 +1,7 @@
-const BASE_URL = process.env.TRUSTAP_BASE_URL || 'https://dev.trustap.com';
+const BASE_URL = process.env.TRUSTAP_BASE_URL || 'https://dev.stage.trustap.com';
 const TOKEN_URL =
   process.env.TRUSTAP_TOKEN_URL ||
-  'https://sso.trustap.com/auth/realms/trustap/protocol/openid-connect/token';
+  'https://sso.stage.trustap.com/auth/realms/trustap/protocol/openid-connect/token';
 
 let _token = null;
 let _tokenExp = 0;

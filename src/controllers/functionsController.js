@@ -85,7 +85,7 @@ async function createEscrow(req, res, next) {
     const priceInPence = Math.round(Number(amount) * 100);
 
     // Get Trustap fee for this amount
-    const trustapCurrency = process.env.TRUSTAP_CURRENCY || 'gbp';
+    const trustapCurrency = process.env.TRUSTAP_CURRENCY || 'eur';
     console.log('[Trustap] getting charge for', priceInPence, trustapCurrency + '...');
     const chargeInfo = await trustap.getCharge(priceInPence, trustapCurrency);
     console.log('[Trustap] charge:', JSON.stringify(chargeInfo));

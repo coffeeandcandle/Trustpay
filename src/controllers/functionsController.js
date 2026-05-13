@@ -101,7 +101,6 @@ async function createEscrow(req, res, next) {
       charge:                  chargeInfo.charge,
       chargeSeller:            chargeInfo.charge_seller || 0,
       chargeCalculatorVersion: chargeInfo.charge_calculator_version,
-      chargeConfig:            chargeInfo.charge_config,
     });
 
     // Get bank transfer payment details for the buyer

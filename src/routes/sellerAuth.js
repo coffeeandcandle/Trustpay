@@ -27,6 +27,13 @@ const APP_RETURN_BASE = `${process.env.API_BASE_URL || 'https://uat-api.trustdep
 // CSRF state token TTL: 30 minutes
 const TOKEN_TTL_MS = 30 * 60 * 1000;
 
+// Serve an HTML page that does a client-side JS redirect to the return URL.
+// This ensures onShouldStartLoadWithRequest fires on both iOS and Android
+// (server-side 302 redirects are silently followed by Android WebView).
+function jsRedirect(res, url) {
+  res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><script>window.location.replace(${JSON.stringify(url)});</script></head><body></body></html>`);
+}
+
 // ── POST /api/seller/start-onboarding ────────────────────────────────────────
 router.post('/start-onboarding', authenticate, async (req, res) => {
   try {
@@ -93,7 +100,7 @@ router.get('/callback', async (req, res) => {
   const { code, state, error, error_description } = req.query;
 
   const redirectError = (reason) =>
-    res.redirect(`${APP_RETURN_BASE}?status=error&reason=${encodeURIComponent(reason)}`);
+    jsRedirect(res, `${APP_RETURN_BASE}?status=error&reason=${encodeURIComponent(reason)}`);
 
   if (error) {
     logger.warn('SellerOnboarding', 'OAuth returned error', { error, error_description });
@@ -149,7 +156,7 @@ router.get('/callback', async (req, res) => {
       .eq('id', userId);
 
     logger.info('SellerOnboarding', 'Seller verified', { userId, trustapSellerId });
-    return res.redirect(`${APP_RETURN_BASE}?status=verified`);
+    return jsRedirect(res, `${APP_RETURN_BASE}?status=verified`);
   } catch (err) {
     logger.error('SellerOnboarding', 'OAuth callback failed', { error: err });
     return redirectError('internal_error');

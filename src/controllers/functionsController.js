@@ -85,8 +85,9 @@ async function createEscrow(req, res, next) {
     const priceInPence = Math.round(Number(amount) * 100);
 
     // Get Trustap fee for this amount
-    console.log('[Trustap] getting charge for', priceInPence, 'pence...');
-    const chargeInfo = await trustap.getCharge(priceInPence, 'gbp');
+    const trustapCurrency = process.env.TRUSTAP_CURRENCY || 'eur';
+    console.log('[Trustap] getting charge for', priceInPence, trustapCurrency + '...');
+    const chargeInfo = await trustap.getCharge(priceInPence, trustapCurrency);
     console.log('[Trustap] charge:', JSON.stringify(chargeInfo));
 
     // Create P2P transaction with both parties as guest users in one call
@@ -96,7 +97,7 @@ async function createEscrow(req, res, next) {
       sellerTrustapId,
       buyerTrustapId,
       description: title,
-      currency: 'gbp',
+      currency: trustapCurrency,
       depositPrice: chargeInfo.price,
       depositCharge: chargeInfo.charge,
       chargeCalculatorVersion: chargeInfo.charge_calculator_version,

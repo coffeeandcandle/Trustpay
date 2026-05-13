@@ -13,6 +13,7 @@ const adminRoutes = require('./routes/admin');
 const uploadRoutes = require('./routes/upload');
 const paymentRoutes = require('./routes/payments');
 const kycRoutes = require('./routes/kyc');
+const webhookRoutes = require('./routes/webhooks');
 const errorHandler = require('./middleware/errorHandler');
 const { supabase } = require('./config/supabase');
 
@@ -230,6 +231,7 @@ app.use('/api/admin', adminRoutes);
 app.use('/api/upload', uploadRoutes);
 app.use('/api/payments', paymentRoutes);
 app.use('/api/kyc', kycRoutes);
+app.use('/api/webhooks', webhookRoutes);
 
 // ── 404 handler
 app.use((req, res) => {

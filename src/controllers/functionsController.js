@@ -85,30 +85,31 @@ async function createEscrow(req, res, next) {
     const priceInPence = Math.round(Number(amount) * 100);
 
     // Get Trustap fee for this amount
-    const trustapCurrency = process.env.TRUSTAP_CURRENCY || 'eur';
+    const trustapCurrency = process.env.TRUSTAP_CURRENCY || 'gbp';
     console.log('[Trustap] getting charge for', priceInPence, trustapCurrency + '...');
     const chargeInfo = await trustap.getCharge(priceInPence, trustapCurrency);
     console.log('[Trustap] charge:', JSON.stringify(chargeInfo));
 
-    // Create online transaction with both parties as guest users
-    console.log('[Trustap] creating transaction...');
-    const trustapTx = await trustap.createTransaction({
+    // Create P2P transaction with both parties as guest users (card payment)
+    console.log('[Trustap] creating P2P transaction...');
+    const trustapTx = await trustap.createP2PTransaction({
       sellerTrustapId,
       buyerTrustapId,
       description: title,
       currency: trustapCurrency,
-      price:                   chargeInfo.price,
-      charge:                  chargeInfo.charge,
-      chargeSeller:            chargeInfo.charge_seller || 0,
+      depositPrice:            chargeInfo.price,
+      depositCharge:           chargeInfo.charge,
       chargeCalculatorVersion: chargeInfo.charge_calculator_version,
+      chargeConfig:            chargeInfo.charge_config,
     });
 
-    // Get bank transfer payment details for the buyer
-    let bankDetails = null;
+    // Get Stripe client secret so buyer can pay via card
+    let stripeClientSecret = null;
     try {
-      bankDetails = await trustap.getBankTransferDetails(trustapTx.id);
+      const secretData = await trustap.getStripeClientSecret(trustapTx.id, buyerTrustapId);
+      stripeClientSecret = secretData.client_secret;
     } catch (e) {
-      console.warn('[Trustap] getBankTransferDetails failed:', e.message);
+      console.warn('[Trustap] getStripeClientSecret failed:', e.message);
     }
 
     // Persist in our DB
@@ -158,7 +159,7 @@ async function createEscrow(req, res, next) {
       }),
     ]).catch(err => console.error('[EMAIL] createEscrow email error:', err.message));
 
-    return res.status(201).json({ ...data, bank_details: bankDetails });
+    return res.status(201).json({ ...data, stripe_client_secret: stripeClientSecret });
   } catch (err) {
     next(err);
   }
@@ -196,12 +197,13 @@ async function confirmEscrow(req, res, next) {
       return res.status(400).json({ error: `Cannot confirm a transaction with status: ${tx.status}` });
     }
 
-    // Sender (buyer) confirming → release funds via Trustap confirm_delivery
-    if (isSender && tx.trustap_transaction_id && tx.trustap_buyer_id) {
+    // Both parties must confirm handover — triggers fund release on Trustap
+    const userTrustapId = isSender ? tx.trustap_buyer_id : tx.trustap_seller_id;
+    if (tx.trustap_transaction_id && userTrustapId) {
       try {
-        await trustap.confirmDelivery(tx.trustap_transaction_id, tx.trustap_buyer_id);
+        await trustap.confirmHandover(tx.trustap_transaction_id, userTrustapId);
       } catch (e) {
-        console.error('[Trustap] confirmDelivery failed:', e.message);
+        console.error('[Trustap] confirmHandover failed:', e.message);
       }
     }
 

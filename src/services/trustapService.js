@@ -28,7 +28,6 @@ async function call(method, path, { body, trustapUser } = {}) {
 
 // ── Guest users ────────────────────────────────────────────────────────────────
 
-// POST /api/v1/guest_users
 async function createGuestUser(email, firstName, lastName, ip = '0.0.0.0', countryCode = 'GB') {
   return call('POST', '/api/v1/guest_users', {
     body: {
@@ -44,29 +43,25 @@ async function createGuestUser(email, firstName, lastName, ip = '0.0.0.0', count
   });
 }
 
-// ── Online transactions ────────────────────────────────────────────────────────
-// These are /api/v1/transactions/... (no p2p prefix), using field names without
-// the "deposit_" prefix.
+// ── P2P (F2F) transactions with card payment ───────────────────────────────────
 
-// GET /api/v1/charge
-// Returns { charge, charge_seller, charge_calculator_version, charge_config, currency, price, ... }
+// GET /api/v1/p2p/charge  (card is the default payment method)
 async function getCharge(price, currency = 'gbp') {
-  const paymentMethod = process.env.TRUSTAP_PAYMENT_METHOD || 'card';
-  const qs = new URLSearchParams({ price: String(price), currency, payment_method: paymentMethod });
-  return call('GET', `/api/v1/charge?${qs}`);
+  const qs = new URLSearchParams({ price: String(price), currency });
+  return call('GET', `/api/v1/p2p/charge?${qs}`);
 }
 
-// POST /api/v1/me/transactions/create_with_guest_user  (APIKey, no Trustap-User needed)
-// Returns basic.Transaction { id, join_code, status, ... }
-async function createTransaction({
+// POST /api/v1/p2p/me/transactions/create_with_guest_user  (APIKey)
+// Both buyer and seller are guest users. Card payment — Stripe client secret returned separately.
+async function createP2PTransaction({
   sellerTrustapId,
   buyerTrustapId,
   description,
   currency = 'gbp',
-  price,
-  charge,
-  chargeSeller,
+  depositPrice,
+  depositCharge,
   chargeCalculatorVersion,
+  chargeConfig = 1,
 }) {
   const requestBody = {
     seller_id:                 sellerTrustapId,
@@ -74,65 +69,61 @@ async function createTransaction({
     creator_role:              'seller',
     currency,
     description,
-    price,
-    charge,
-    charge_seller:             chargeSeller || 0,
+    deposit_price:             depositPrice,
+    deposit_charge:            depositCharge,
+    deposit_charge_seller:     0,
     charge_calculator_version: chargeCalculatorVersion,
-    ...(process.env.TRUSTAP_PAYMENT_METHOD && { payment_method: process.env.TRUSTAP_PAYMENT_METHOD }),
+    deposit_charge_config:     chargeConfig,
+    skip_remainder:            true,
   };
-  console.log('[Trustap] createTransaction body:', JSON.stringify(requestBody));
-  return call('POST', '/api/v1/me/transactions/create_with_guest_user', { body: requestBody });
+  console.log('[Trustap] createP2PTransaction body:', JSON.stringify(requestBody));
+  return call('POST', '/api/v1/p2p/me/transactions/create_with_guest_user', { body: requestBody });
 }
 
-// GET /api/v1/transactions/{id}/bank_transfer_details
-async function getBankTransferDetails(trustapTxId) {
-  return call('GET', `/api/v1/transactions/${trustapTxId}/bank_transfer_details`);
+// GET /api/v1/p2p/transactions/{id}/deposit_stripe_client_secret
+// Returns { client_secret } — used by mobile to present Stripe payment sheet
+async function getStripeClientSecret(trustapTxId, buyerTrustapId) {
+  return call('GET', `/api/v1/p2p/transactions/${trustapTxId}/deposit_stripe_client_secret`, {
+    trustapUser: buyerTrustapId,
+  });
 }
 
-// POST /api/v1/transactions/{id}/accept_payment_with_guest_seller  (APIKey + Trustap-User)
-// Called by seller to acknowledge payment received (only needed if require_seller_acceptance feature is on)
-async function acceptPayment(trustapTxId, sellerTrustapId) {
-  return call('POST', `/api/v1/transactions/${trustapTxId}/accept_payment_with_guest_seller`, {
+// POST /api/v1/p2p/transactions/{id}/accept_deposit_with_guest_seller
+// Seller confirms buyer's card payment was received
+async function acceptDeposit(trustapTxId, sellerTrustapId) {
+  return call('POST', `/api/v1/p2p/transactions/${trustapTxId}/accept_deposit_with_guest_seller`, {
     trustapUser: sellerTrustapId,
   });
 }
 
-// POST /api/v1/transactions/{id}/confirm_delivery_with_guest_buyer  (APIKey + Trustap-User)
-// Called by buyer to confirm delivery and release funds to seller
-async function confirmDelivery(trustapTxId, buyerTrustapId) {
-  return call('POST', `/api/v1/transactions/${trustapTxId}/confirm_delivery_with_guest_buyer`, {
-    trustapUser: buyerTrustapId,
-  });
-}
-
-// POST /api/v1/transactions/{id}/complain_with_guest_buyer  (APIKey + Trustap-User)
-async function complain(trustapTxId, buyerTrustapId, description) {
-  return call('POST', `/api/v1/transactions/${trustapTxId}/complain_with_guest_buyer`, {
-    trustapUser: buyerTrustapId,
-    body: { description },
-  });
-}
-
-// POST /api/v1/transactions/{id}/cancel_with_guest_user  (APIKey + Trustap-User)
-async function cancelTransaction(trustapTxId, userTrustapId) {
-  return call('POST', `/api/v1/transactions/${trustapTxId}/cancel_with_guest_user`, {
+// POST /api/v1/p2p/transactions/{id}/confirm_handover_with_guest_user
+// Both buyer and seller must confirm — triggers fund release
+async function confirmHandover(trustapTxId, userTrustapId) {
+  return call('POST', `/api/v1/p2p/transactions/${trustapTxId}/confirm_handover_with_guest_user`, {
     trustapUser: userTrustapId,
   });
 }
 
-// GET /api/v1/transactions/{id}
+// POST /api/v1/p2p/transactions/{id}/complain  (APIKey + Trustap-User, works for both parties)
+async function complain(trustapTxId, userTrustapId, description) {
+  return call('POST', `/api/v1/p2p/transactions/${trustapTxId}/complain`, {
+    trustapUser: userTrustapId,
+    body: { description },
+  });
+}
+
+// GET /api/v1/p2p/transactions/{id}
 async function getTransaction(trustapTxId) {
-  return call('GET', `/api/v1/transactions/${trustapTxId}`);
+  return call('GET', `/api/v1/p2p/transactions/${trustapTxId}`);
 }
 
 module.exports = {
   createGuestUser,
   getCharge,
-  createTransaction,
-  getBankTransferDetails,
-  acceptPayment,
-  confirmDelivery,
+  createP2PTransaction,
+  getStripeClientSecret,
+  acceptDeposit,
+  confirmHandover,
   complain,
-  cancelTransaction,
   getTransaction,
 };

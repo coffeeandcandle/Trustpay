@@ -157,11 +157,7 @@ router.get('/callback', async (req, res) => {
       .eq('id', userId);
 
     logger.info('SellerOnboarding', 'Seller verified', { userId, trustapSellerId });
-    // Embed the Trustap profile URL as a `next` param so the mobile WebView can
-    // navigate there directly (avoids a second redirect chain that can be dropped).
-    const profileUrl = process.env.TRUSTAP_PROFILE_URL ||
-      `https://app.stage.trustap.com/profile/payout/personal?edit=true&client_id=${process.env.TRUSTAP_CLIENT_ID}`;
-    return jsRedirect(res, `${APP_RETURN_BASE}?status=verified&next=${encodeURIComponent(profileUrl)}`);
+    return jsRedirect(res, `${APP_RETURN_BASE}?status=verified`);
   } catch (err) {
     logger.error('SellerOnboarding', 'OAuth callback failed', { error: err });
     return redirectError('internal_error');

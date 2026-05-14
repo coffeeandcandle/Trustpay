@@ -174,6 +174,25 @@ router.get('/return', (req, res) => {
   res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>body{margin:0;display:flex;align-items:center;justify-content:center;min-height:100vh;background:#0a0a0f;font-family:-apple-system,sans-serif;color:#fff;text-align:center;padding:24px}</style></head><body><div><div style="font-size:56px;margin-bottom:16px">${emoji}</div><p style="color:#94a3b8">${msg}</p></div></body></html>`);
 });
 
+// ── GET /api/seller/payout-setup-url ─────────────────────────────────────────
+// Returns the Trustap hosted profile URL so the mobile app can open it.
+router.get('/payout-setup-url', authenticate, async (req, res) => {
+  const { data: user } = await supabase
+    .from('users')
+    .select('seller_status')
+    .eq('id', req.user.id)
+    .single();
+
+  if (!user || user.seller_status !== 'seller_verified') {
+    return res.status(403).json({ error: 'Seller account not verified' });
+  }
+
+  const url = process.env.TRUSTAP_PROFILE_URL ||
+    `https://app.stage.trustap.com/profile/payout/personal?edit=true&client_id=${process.env.TRUSTAP_CLIENT_ID}`;
+
+  return res.json({ url });
+});
+
 // ── GET /api/seller/status ────────────────────────────────────────────────────
 router.get('/status', authenticate, async (req, res) => {
   const { data, error } = await supabase

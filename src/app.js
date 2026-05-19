@@ -29,6 +29,7 @@ const allowedOrigins = [
   'https://trustdepo.com',
   'https://www.trustdepo.com',
   'https://admin.trustdepo.com',
+  'https://uat-admin.trustdepo.com',
   'http://51.21.197.111:3000',
   'http://51.21.197.111:4000',
   'http://localhost:5100',
